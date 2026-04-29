@@ -32,7 +32,7 @@ Uma solução de alta performance desenvolvida para automatizar a conciliação 
 
 ### Na Nuvem (Recomendado)
 Acesse o sistema diretamente pelo navegador através do link:
-👉 `[Acessar o Conciliador Financeiro](https://conciliador-financeiro-pro.streamlit.app/)`
+👉 [Acessar o Conciliador Financeiro](https://conciliador-financeiro-pro.streamlit.app/)
 
 ### Localmente (Desenvolvimento)
 Se desejar rodar o projeto em sua máquina:
