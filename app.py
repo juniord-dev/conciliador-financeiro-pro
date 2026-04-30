@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Conciliador PRO | HITS x Getnet", layout="wide", page_icon="📈")
 
-# 2. CSS CUSTOMIZADO (Design Moderno e Correção de Cores)
+# 2. CSS CUSTOMIZADO (Design, Correção do Botão e Ocultação do CSV Nativo)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -47,7 +47,6 @@ st.markdown("""
         transition: 0.3s all !important;
     }
     
-    /* Força o texto dentro do botão a ser branco */
     .stButton>button div p, .stButton>button span, .stButton>button {
         color: white !important;
         font-weight: 700 !important;
@@ -60,6 +59,11 @@ st.markdown("""
         border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         border-bottom: 4px solid var(--primary);
+    }
+    
+    /* ESCONDE O MENU NATIVO DE CSV DA TABELA DO STREAMLIT */
+    [data-testid="stElementToolbar"] {
+        display: none !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -74,15 +78,11 @@ def garantir_numero(serie):
     return pd.to_numeric(serie, errors='coerce').fillna(0)
 
 def limpar_cv(valor):
-    """Remove zeros à esquerda e o .0 final (Ex: 0005777 -> 5777)"""
     v = str(valor).strip().lower()
     if v in ['nan', 'none', 'nat', 'null', '']: return ''
     if v.endswith('.0'): v = v[:-2]
-    # Tenta converter para int para matar os zeros à esquerda
-    try:
-        return str(int(v))
-    except:
-        return v
+    try: return str(int(v))
+    except: return v
 
 def ler_excel_inteligente(file, palavra_chave, aba=0):
     try:
@@ -92,6 +92,14 @@ def ler_excel_inteligente(file, palavra_chave, aba=0):
                 return pd.read_excel(file, header=indice, sheet_name=aba)
     except: return pd.DataFrame()
     return pd.read_excel(file, sheet_name=aba)
+
+def formata_moeda(val):
+    """Aplica formatação em Reais (R$) para exibição na tela"""
+    if pd.isna(val) or val == '': return ''
+    try:
+        # Troca ponto por vírgula e vice-versa para o padrão BR
+        return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except: return val
 
 # --- INTERFACE ---
 
@@ -170,15 +178,12 @@ if hits_file and getnet_file:
             # --- 4. TRATAMENTO E STATUS ---
             df_res = pd.concat([df_m_cart, df_m_pix], ignore_index=True)
             
-            # Limpeza CRÍTICA dos CVs (Mata zeros à esquerda ANTES da comparação)
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
             
-            # Datas limpas
             df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
             df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
 
-            # Lógica de Status Blindada
             df_res['Status'] = 'Divergência'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
             df_res.loc[df_res['_merge'] == 'right_only', 'Status'] = 'Falta no HITS'
@@ -190,14 +195,12 @@ if hits_file and getnet_file:
             df_res.loc[mask_both & mask_cv_match & mask_val_match, 'Status'] = 'Batido - OK'
             df_res.loc[mask_both & (~mask_cv_match | ~mask_val_match), 'Status'] = 'Divergência'
 
-            # Ordenação
             df_res['Ordem'] = df_res['Status'].map({'Falta na Getnet':1, 'Falta no HITS':2, 'Divergência':3, 'Batido - OK':4})
             df_res = df_res.sort_values(by=['Ordem', 'Pagamento']).reset_index(drop=True)
             
             cols_f = ['Status', 'Pagamento', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G']
             df_res = df_res[cols_f].fillna('')
             
-            # Limpeza final de qualquer 'None' ou 'nan' residual para a tela
             for c in df_res.columns:
                 df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
 
@@ -222,9 +225,16 @@ if hits_file and getnet_file:
             c3.metric("Faltas (Pendências)", len(df_res[df_res['Status'].str.contains('Falta')]))
             c4.metric("Divergências", len(df_res[df_res['Status'] == 'Divergência']))
 
-            st.dataframe(df_res.style.apply(cor_tela, axis=1), use_container_width=True)
+            # Exibe os dados com as cores aplicadas e a máscara de moeda R$
+            st.dataframe(
+                df_res.style.apply(cor_tela, axis=1).format({
+                    'Valor_H': formata_moeda, 
+                    'Valor_G': formata_moeda
+                }), 
+                use_container_width=True
+            )
 
-            # --- EXPORTAÇÃO EXCEL (XLSX REAL) ---
+            # --- EXPORTAÇÃO EXCEL (.XLSX) ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_res.to_excel(writer, index=False, sheet_name='Resultado')
@@ -238,19 +248,23 @@ if hits_file and getnet_file:
                     row_f = f_ok if st_v == 'Batido - OK' else (f_err if 'Falta' in str(st_v) else f_warn)
                     for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = row_f
                     
-                    # Formatação Moeda
                     for c_n in ['Valor_H', 'Valor_G']:
                         if ws.cell(r, idx[c_n]).value != '':
                             ws.cell(r, idx[c_n]).number_format = '"R$" #,##0.00'
                     
-                    # Laranja nas Divergências
                     if st_v == 'Divergência':
                         if str(ws.cell(r, idx['CV_H']).value) != str(ws.cell(r, idx['CV_G']).value):
                             ws.cell(r, idx['CV_H']).fill = ws.cell(r, idx['CV_G']).fill = f_div
                         if not np.isclose(float(ws.cell(r, idx['Valor_H']).value or 0), float(ws.cell(r, idx['Valor_G']).value or 0), atol=0.01):
                             ws.cell(r, idx['Valor_H']).fill = ws.cell(r, idx['Valor_G']).fill = f_div
             
-            st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # ESTE É O BOTÃO DE DOWNLOAD CORRETO
+            st.download_button(
+                label="📥 BAIXAR RESULTADO (.xlsx)", 
+                data=output.getvalue(), 
+                file_name="conciliacao_pro.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 else:
     st.info("💡 Dica: Arraste os arquivos acima para começar.")
