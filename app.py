@@ -122,7 +122,15 @@ if hits_file and getnet_file:
             
             # --- 1. GETNET ---
             df_g_cartoes = ler_excel_inteligente(getnet_file, 'BANDEIRA', aba=0)
-            df_g_cartoes.columns = df_g_cartoes.columns.astype(str).str.strip()
+            
+            # BLINDAGEM 1: Força todas as colunas a ficarem em MAIÚSCULO para evitar erros de leitura
+            df_g_cartoes.columns = df_g_cartoes.columns.astype(str).str.strip().str.upper()
+            
+            # BLINDAGEM 2: Trava de segurança para arquivos invertidos
+            if 'MODALIDADE' not in df_g_cartoes.columns:
+                st.error("❌ ERRO: A coluna 'MODALIDADE' não foi encontrada na planilha da Getnet. Verifique se você não arrastou o arquivo do HITS na caixa errada!")
+                st.stop() # Para o código aqui silenciosamente
+
             if 'STATUS DA TRANSAÇÃO' in df_g_cartoes.columns:
                 df_g_cartoes = df_g_cartoes[df_g_cartoes['STATUS DA TRANSAÇÃO'].str.contains('Aprovada', case=False, na=False)]
             
@@ -135,16 +143,16 @@ if hits_file and getnet_file:
 
             df_g_pix = ler_excel_inteligente(getnet_file, 'VALOR', aba='PIX')
             if not df_g_pix.empty:
-                col_st_pix = next((c for c in df_g_pix.columns if 'STATUS' in str(c).upper()), None)
+                df_g_pix.columns = df_g_pix.columns.astype(str).str.strip().str.upper() # Garante maiúsculas no PIX também
+                col_st_pix = next((c for c in df_g_pix.columns if 'STATUS' in str(c)), None)
                 if col_st_pix: df_g_pix = df_g_pix[df_g_pix[col_st_pix].astype(str).str.contains('Paga', case=False, na=False)]
-                col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c).upper()), None)
-                col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c).upper()), None)
+                col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
+                col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
                 df_g_pix = pd.DataFrame({
                     'Valor_G': garantir_numero(df_g_pix[col_v_pix]) if col_v_pix else 0,
                     'Data_G': df_g_pix[col_d_pix] if col_d_pix else '',
                     'Modalidade_G': 'GETNET PIX', 'Auto': 'PIX_SEM_AUT', 'CV_G': ''
                 })
-
             # --- 2. HITS ---
             df_hits = ler_excel_inteligente(hits_file, 'Autorização')
             df_hits.columns = df_hits.columns.astype(str).str.strip()
