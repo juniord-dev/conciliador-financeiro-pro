@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import re
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Alignment
 import warnings
 
 # Limpeza de avisos
@@ -67,6 +68,23 @@ def formata_moeda(val):
     try: return f"R$ {float(val):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except: return val
 
+def formatar_usuario(nome_cru):
+    nome_str = str(nome_cru).strip()
+    if not nome_str or nome_str.lower() in ['nan', 'none', 'nat', '<na>']: return ''
+    match = re.search(r'([^,]+),\s*HOTEL\s*-\s*(.+)', nome_str, re.IGNORECASE)
+    if match:
+        sobrenome = match.group(1).strip().title()
+        nome = match.group(2).strip().title()
+        return f"{nome} {sobrenome}"
+    return nome_str.title()
+
+def simplifica_mod(m):
+    m = str(m).upper()
+    if 'CRED' in m or 'CRÉD' in m: return 'CRED'
+    if 'DEB' in m or 'DÉB' in m: return 'DEB'
+    if 'PIX' in m: return 'PIX'
+    return 'OUTRO'
+
 # --- INTERFACE ---
 
 st.markdown("<h1 style='text-align: center;'>Conciliação Financeira HITS x Getnet</h1>", unsafe_allow_html=True)
@@ -115,14 +133,15 @@ if hits_file and getnet_file:
             df_hits = ler_excel_inteligente(hits_file, 'Autorização')
             df_hits.columns = df_hits.columns.astype(str).str.strip()
             
-            # Garante que a coluna Usuário exista mesmo se mudar no sistema
             if 'Usuário' not in df_hits.columns: df_hits['Usuário'] = ''
                 
             df_hits = df_hits.rename(columns={
                 'Autorização': 'Auto', 'Documento': 'CV_H', 'Valor': 'Valor_H', 
                 'Data': 'Data_H', 'Pagamento': 'Pagamento', 'Tipo de Pagamento': 'Modalidade_H', 'Usuário': 'Usuário'
             })
-            # Não filtramos "HOTEL TRANSFERENCIA/PIX MANUAL" aqui, para podermos marcá-lo como "A VERIFICAR" depois
+            
+            df_hits['Usuário'] = df_hits['Usuário'].apply(formatar_usuario)
+            
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
 
@@ -145,9 +164,9 @@ if hits_file and getnet_file:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
 
-            # --- 4. TRATAMENTO, PAREAMENTO E STATUS ---
+            # --- 4. TRATAMENTO E STATUS ---
             df_res = pd.concat([df_m_cart, df_m_pix], ignore_index=True)
-            df_res['ID_Match'] = '' # Nova Coluna de ID
+            df_res['ID'] = '' 
             
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
@@ -166,68 +185,93 @@ if hits_file and getnet_file:
             df_res.loc[mask_both & mask_cv_match & mask_val_match, 'Status'] = 'Batido - OK'
             df_res.loc[mask_both & (~mask_cv_match | ~mask_val_match), 'Status'] = 'Divergência'
 
-            # INTELIGÊNCIA: PAREAMENTO "ERRO NO AUTO"
-            def get_data_curta(d): return str(d)[:10] if pd.notna(d) and d != '' else ''
+            # --- 5. INTELIGÊNCIA: PAREAMENTO EM 2 PASSOS ---
+            id_count = 1
             
+            # PASSO 1: O ERRO NO AUTO (Bate Valor, CV e Modalidade)
             mask_fh = df_res['Status'] == 'Falta na Getnet'
             mask_fg = df_res['Status'] == 'Falta no HITS'
             
-            df_res['K_H'] = df_res['Valor_H'].astype(float).round(2).astype(str) + "_" + df_res['Data_H'].apply(get_data_curta)
-            df_res['K_G'] = df_res['Valor_G'].astype(float).round(2).astype(str) + "_" + df_res['Data_G'].apply(get_data_curta)
+            df_res['K_H_Full'] = df_res['Valor_H'].astype(float).round(2).astype(str) + "_" + df_res['CV_H'] + "_" + df_res['Modalidade_H'].apply(simplifica_mod)
+            df_res['K_G_Full'] = df_res['Valor_G'].astype(float).round(2).astype(str) + "_" + df_res['CV_G'] + "_" + df_res['Modalidade_G'].apply(simplifica_mod)
             
-            chaves_comuns = set(df_res.loc[mask_fh, 'K_H']).intersection(set(df_res.loc[mask_fg, 'K_G']))
-            chaves_comuns = [c for c in chaves_comuns if not c.startswith('0.0_') and not c.startswith('nan_')]
+            chaves_full = set(df_res.loc[mask_fh, 'K_H_Full']).intersection(set(df_res.loc[mask_fg, 'K_G_Full']))
             
-            id_count = 1
-            for k in chaves_comuns:
-                idx_h = df_res[(mask_fh) & (df_res['K_H'] == k)].index
-                idx_g = df_res[(mask_fg) & (df_res['K_G'] == k)].index
+            for k in chaves_full:
+                partes = k.split('_')
+                if len(partes) >= 2 and partes[1] != '': # Só faz Erro no Auto se tiver CV real
+                    idx_h = df_res[(df_res['Status'] == 'Falta na Getnet') & (df_res['K_H_Full'] == k)].index
+                    idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (df_res['K_G_Full'] == k)].index
+                    limite = min(len(idx_h), len(idx_g))
+                    
+                    for i in range(limite):
+                        df_res.loc[idx_h[i], 'Status'] = df_res.loc[idx_g[i], 'Status'] = 'ERRO NO AUTO'
+                        df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
+                        id_count += 1
+            
+            # PASSO 2: PAREAMENTO DE SOBRA SÓ POR VALOR (Mantém status de Falta)
+            mask_fh2 = df_res['Status'] == 'Falta na Getnet'
+            mask_fg2 = df_res['Status'] == 'Falta no HITS'
+            
+            df_res['K_H_Val'] = df_res['Valor_H'].astype(float).round(2).astype(str)
+            df_res['K_G_Val'] = df_res['Valor_G'].astype(float).round(2).astype(str)
+            
+            chaves_val = set(df_res.loc[mask_fh2, 'K_H_Val']).intersection(set(df_res.loc[mask_fg2, 'K_G_Val']))
+            chaves_val = [c for c in chaves_val if c != '0.0' and c != 'nan']
+            
+            for k in chaves_val:
+                idx_h = df_res[(df_res['Status'] == 'Falta na Getnet') & (df_res['K_H_Val'] == k)].index
+                idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (df_res['K_G_Val'] == k)].index
                 limite = min(len(idx_h), len(idx_g))
                 
                 for i in range(limite):
-                    df_res.loc[idx_h[i], 'Status'] = df_res.loc[idx_g[i], 'Status'] = 'ERRO NO AUTO'
-                    df_res.loc[idx_h[i], 'ID_Match'] = df_res.loc[idx_g[i], 'ID_Match'] = f'#{id_count}'
+                    # O status não muda, só ganha o ID!
+                    df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
                     id_count += 1
                     
-            df_res = df_res.drop(columns=['K_H', 'K_G'])
+            df_res = df_res.drop(columns=['K_H_Full', 'K_G_Full', 'K_H_Val', 'K_G_Val'])
 
-            # REGRA "A VERIFICAR"
+            # REGRA "A VERIFICAR" PARA PIX MANUAL HITS
             df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
 
             # Ordenação e Limpeza
             mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'ERRO NO AUTO':3, 'A VERIFICAR':4, 'Divergência':5, 'Batido - OK':6}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
-            df_res = df_res.sort_values(by=['Ordem', 'ID_Match', 'Data_H']).reset_index(drop=True)
+            df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
-            cols_f = ['ID_Match', 'Status', 'Pagamento', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
+            cols_f = ['ID', 'Status', 'Pagamento', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
             df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
             for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
 
             # --- PINTURA CIRÚRGICA (TELA) ---
             def cor_tela(row):
-                est = [''] * len(row) # Fundo limpo (Branco)
+                est = [''] * len(row)
                 cols = list(row.index)
-                st = row['Status']
+                st_val = row['Status']
                 
-                if st == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
-                elif st == 'Falta na Getnet':
+                if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
+                elif st_val == 'Falta na Getnet':
                     for c in ['Pagamento', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
-                elif st == 'Falta no HITS':
+                elif st_val == 'Falta no HITS':
                     for c in ['Valor_G', 'CV_G', 'Data_G', 'Modalidade_G']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
-                elif st == 'A VERIFICAR':
+                elif st_val == 'A VERIFICAR':
                     if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
-                elif st == 'Divergência':
+                elif st_val == 'Divergência':
                     if str(row['CV_H']) != str(row['CV_G']):
                         if 'CV_H' in cols: est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
                         if 'CV_G' in cols: est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
                     if not np.isclose(float(row['Valor_H'] or 0), float(row['Valor_G'] or 0), atol=0.01):
                         if 'Valor_H' in cols: est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
                         if 'Valor_G' in cols: est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st == 'ERRO NO AUTO':
-                    if 'ID_Match' in cols: est[cols.index('ID_Match')] = 'background-color: #fce83a; font-weight: bold; color: black;'
+                elif st_val == 'ERRO NO AUTO':
                     if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
+                
+                # O ID sempre acende amarelo forte se tiver pareamento, independente do status da linha
+                if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
+                    est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
+                    
                 return est
 
             # --- DASHBOARD ---
@@ -241,17 +285,15 @@ if hits_file and getnet_file:
 
             st.dataframe(df_res.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
 
-            # --- EXPORTAÇÃO EXCEL PROFISSIONAL (Pintura Cirúrgica, AutoFit e Filtros) ---
+            # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_res.to_excel(writer, index=False, sheet_name='Resultado')
                 ws = writer.sheets['Resultado']
                 
-                # Configurações de UX do Excel
-                ws.freeze_panes = 'A2' # Congela o cabeçalho
-                ws.auto_filter.ref = ws.dimensions # Ativa os filtros
+                ws.freeze_panes = 'A2'
+                ws.auto_filter.ref = ws.dimensions
                 
-                # Auto-Ajuste de Largura das Colunas
                 for column in ws.columns:
                     max_length = 0
                     col_letter = column[0].column_letter
@@ -261,24 +303,25 @@ if hits_file and getnet_file:
                         except: pass
                     ws.column_dimensions[col_letter].width = min((max_length + 2), 35)
 
-                # Cores
-                f_ok = PatternFill("solid", "E6FFED")
-                f_red = PatternFill("solid", "FFEEF0")
-                f_org = PatternFill("solid", "FFB067")
-                f_blu = PatternFill("solid", "D0EBFF")
-                f_ylw = PatternFill("solid", "FCE83A")
+                f_ok, f_red, f_org, f_blu, f_ylw = PatternFill("solid", "E6FFED"), PatternFill("solid", "FFEEF0"), PatternFill("solid", "FFB067"), PatternFill("solid", "D0EBFF"), PatternFill("solid", "FCE83A")
+                center_align = Alignment(horizontal="center", vertical="center")
                 
+                for c in range(1, ws.max_column + 1):
+                    ws.cell(1, c).alignment = center_align
+
                 idx = {n: i for i, n in enumerate(df_res.columns, 1)}
 
                 for r in range(2, ws.max_row + 1):
                     st_v = ws.cell(r, idx['Status']).value
+                    id_val = str(ws.cell(r, idx['ID']).value or '').strip()
                     
-                    # Formatação Moeda Contábil
+                    for c in range(1, ws.max_column + 1):
+                        ws.cell(r, c).alignment = center_align
+                    
                     for c_n in ['Valor_H', 'Valor_G']:
                         if c_n in idx and ws.cell(r, idx[c_n]).value != '':
                             ws.cell(r, idx[c_n]).number_format = '"R$" #,##0.00'
                     
-                    # Pintura Cirúrgica
                     if st_v == 'Batido - OK':
                         for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
                     elif st_v == 'Falta na Getnet':
@@ -290,7 +333,6 @@ if hits_file and getnet_file:
                     elif st_v == 'A VERIFICAR':
                         ws.cell(r, idx['Status']).fill = f_blu
                     elif st_v == 'ERRO NO AUTO':
-                        if 'ID_Match' in idx: ws.cell(r, idx['ID_Match']).fill = f_ylw
                         if 'Auto' in idx: ws.cell(r, idx['Auto']).fill = f_org
                     elif st_v == 'Divergência':
                         if str(ws.cell(r, idx['CV_H']).value) != str(ws.cell(r, idx['CV_G']).value):
@@ -299,6 +341,10 @@ if hits_file and getnet_file:
                         if not np.isclose(float(ws.cell(r, idx['Valor_H']).value or 0), float(ws.cell(r, idx['Valor_G']).value or 0), atol=0.01):
                             if 'Valor_H' in idx: ws.cell(r, idx['Valor_H']).fill = f_org
                             if 'Valor_G' in idx: ws.cell(r, idx['Valor_G']).fill = f_org
+
+                    # Sempre acende a célula ID em amarelo se tiver numeração, independente do status da linha
+                    if id_val != '' and 'ID' in idx:
+                        ws.cell(r, idx['ID']).fill = f_ylw
             
             st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
