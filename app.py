@@ -181,9 +181,10 @@ if hits_file and getnet_file:
             mask_both = df_res['_merge'] == 'both'
             mask_cv_match = (df_res['CV_H'] == df_res['CV_G'])
             mask_val_match = np.isclose(pd.to_numeric(df_res['Valor_H'], errors='coerce').fillna(0), pd.to_numeric(df_res['Valor_G'], errors='coerce').fillna(0), atol=0.01)
+            mask_mod_match = (df_res['Modalidade_H'].apply(simplifica_mod) == df_res['Modalidade_G'].apply(simplifica_mod))
             
-            df_res.loc[mask_both & mask_cv_match & mask_val_match, 'Status'] = 'Batido - OK'
-            df_res.loc[mask_both & (~mask_cv_match | ~mask_val_match), 'Status'] = 'Divergência'
+            df_res.loc[mask_both & mask_cv_match & mask_val_match & mask_mod_match, 'Status'] = 'Batido - OK'
+            df_res.loc[mask_both & (~mask_cv_match | ~mask_val_match | ~mask_mod_match), 'Status'] = 'Divergência'
 
             # --- 5. INTELIGÊNCIA: PAREAMENTO EM 2 PASSOS ---
             id_count = 1
@@ -265,6 +266,9 @@ if hits_file and getnet_file:
                     if not np.isclose(float(row['Valor_H'] or 0), float(row['Valor_G'] or 0), atol=0.01):
                         if 'Valor_H' in cols: est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
                         if 'Valor_G' in cols: est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
+                    if simplifica_mod(row['Modalidade_H']) != simplifica_mod(row['Modalidade_G']):
+                        if 'Modalidade_H' in cols: est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'Modalidade_G' in cols: est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
                 elif st_val == 'ERRO NO AUTO':
                     if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
                 
@@ -341,6 +345,12 @@ if hits_file and getnet_file:
                         if not np.isclose(float(ws.cell(r, idx['Valor_H']).value or 0), float(ws.cell(r, idx['Valor_G']).value or 0), atol=0.01):
                             if 'Valor_H' in idx: ws.cell(r, idx['Valor_H']).fill = f_org
                             if 'Valor_G' in idx: ws.cell(r, idx['Valor_G']).fill = f_org
+                        
+                        mod_h_val = str(ws.cell(r, idx['Modalidade_H']).value or '')
+                        mod_g_val = str(ws.cell(r, idx['Modalidade_G']).value or '')
+                        if simplifica_mod(mod_h_val) != simplifica_mod(mod_g_val):
+                            if 'Modalidade_H' in idx: ws.cell(r, idx['Modalidade_H']).fill = f_org
+                            if 'Modalidade_G' in idx: ws.cell(r, idx['Modalidade_G']).fill = f_org
 
                     # Sempre acende a célula ID em amarelo se tiver numeração, independente do status da linha
                     if id_val != '' and 'ID' in idx:
