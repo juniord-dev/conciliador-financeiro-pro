@@ -133,11 +133,14 @@ if hits_file and getnet_file:
             df_hits = ler_excel_inteligente(hits_file, 'Autorização')
             df_hits.columns = df_hits.columns.astype(str).str.strip()
             
+            # Garantia de colunas (Evita erros se o sistema mudar a exportação)
             if 'Usuário' not in df_hits.columns: df_hits['Usuário'] = ''
+            if 'Conta' not in df_hits.columns: df_hits['Conta'] = ''
                 
             df_hits = df_hits.rename(columns={
                 'Autorização': 'Auto', 'Documento': 'CV_H', 'Valor': 'Valor_H', 
-                'Data': 'Data_H', 'Pagamento': 'Pagamento', 'Tipo de Pagamento': 'Modalidade_H', 'Usuário': 'Usuário'
+                'Data': 'Data_H', 'Pagamento': 'Pagamento', 'Tipo de Pagamento': 'Modalidade_H', 
+                'Usuário': 'Usuário', 'Conta': 'Conta'
             })
             
             df_hits['Usuário'] = df_hits['Usuário'].apply(formatar_usuario)
@@ -164,7 +167,7 @@ if hits_file and getnet_file:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
 
-            # --- 4. TRATAMENTO E STATUS ---
+            # --- 4. TRATAMENTO, PAREAMENTO E STATUS ---
             df_res = pd.concat([df_m_cart, df_m_pix], ignore_index=True)
             df_res['ID'] = '' 
             
@@ -200,7 +203,7 @@ if hits_file and getnet_file:
             
             for k in chaves_full:
                 partes = k.split('_')
-                if len(partes) >= 2 and partes[1] != '': # Só faz Erro no Auto se tiver CV real
+                if len(partes) >= 2 and partes[1] != '':
                     idx_h = df_res[(df_res['Status'] == 'Falta na Getnet') & (df_res['K_H_Full'] == k)].index
                     idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (df_res['K_G_Full'] == k)].index
                     limite = min(len(idx_h), len(idx_g))
@@ -226,13 +229,12 @@ if hits_file and getnet_file:
                 limite = min(len(idx_h), len(idx_g))
                 
                 for i in range(limite):
-                    # O status não muda, só ganha o ID!
                     df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
                     id_count += 1
                     
             df_res = df_res.drop(columns=['K_H_Full', 'K_G_Full', 'K_H_Val', 'K_G_Val'])
 
-            # REGRA "A VERIFICAR" PARA PIX MANUAL HITS
+            # REGRA "A VERIFICAR"
             df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
 
             # Ordenação e Limpeza
@@ -240,7 +242,8 @@ if hits_file and getnet_file:
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
-            cols_f = ['ID', 'Status', 'Pagamento', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
+            # --- ADICIONADA A COLUNA 'CONTA' AO LADO DE 'PAGAMENTO' ---
+            cols_f = ['ID', 'Status', 'Pagamento', 'Conta', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
             df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
             for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
 
@@ -252,7 +255,8 @@ if hits_file and getnet_file:
                 
                 if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
                 elif st_val == 'Falta na Getnet':
-                    for c in ['Pagamento', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                    # Conta adicionada aqui para ficar vermelha
+                    for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
                 elif st_val == 'Falta no HITS':
                     for c in ['Valor_G', 'CV_G', 'Data_G', 'Modalidade_G']:
@@ -272,7 +276,6 @@ if hits_file and getnet_file:
                 elif st_val == 'ERRO NO AUTO':
                     if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
                 
-                # O ID sempre acende amarelo forte se tiver pareamento, independente do status da linha
                 if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
                     est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
                     
@@ -329,7 +332,8 @@ if hits_file and getnet_file:
                     if st_v == 'Batido - OK':
                         for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
                     elif st_v == 'Falta na Getnet':
-                        for c_n in ['Pagamento', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                        # Conta adicionada aqui para ficar vermelha no Excel
+                        for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                             if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
                     elif st_v == 'Falta no HITS':
                         for c_n in ['Valor_G', 'CV_G', 'Data_G', 'Modalidade_G']:
@@ -352,7 +356,6 @@ if hits_file and getnet_file:
                             if 'Modalidade_H' in idx: ws.cell(r, idx['Modalidade_H']).fill = f_org
                             if 'Modalidade_G' in idx: ws.cell(r, idx['Modalidade_G']).fill = f_org
 
-                    # Sempre acende a célula ID em amarelo se tiver numeração, independente do status da linha
                     if id_val != '' and 'ID' in idx:
                         ws.cell(r, idx['ID']).fill = f_ylw
             
