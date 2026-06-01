@@ -174,10 +174,12 @@ if hits_file and getnet_file:
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
             
-            df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
-            df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
+            # Formata para exibir APENAS A DATA (Removendo a hora)
+            df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce').dt.strftime('%d/%m/%Y')
+            df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce').dt.strftime('%d/%m/%Y')
 
-            df_res['Status'] = 'Divergência'
+            # Inicializa como status de erro base (será sobrescrito)
+            df_res['Status'] = 'VALOR INCORRETO'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
             df_res.loc[df_res['_merge'] == 'right_only', 'Status'] = 'Falta no HITS'
             
@@ -185,14 +187,22 @@ if hits_file and getnet_file:
             mask_cv_match = (df_res['CV_H'] == df_res['CV_G'])
             mask_val_match = np.isclose(pd.to_numeric(df_res['Valor_H'], errors='coerce').fillna(0), pd.to_numeric(df_res['Valor_G'], errors='coerce').fillna(0), atol=0.01)
             mask_mod_match = (df_res['Modalidade_H'].apply(simplifica_mod) == df_res['Modalidade_G'].apply(simplifica_mod))
+            mask_data_match = (df_res['Data_H'] == df_res['Data_G'])
             
-            df_res.loc[mask_both & mask_cv_match & mask_val_match & mask_mod_match, 'Status'] = 'Batido - OK'
-            df_res.loc[mask_both & (~mask_cv_match | ~mask_val_match | ~mask_mod_match), 'Status'] = 'Divergência'
+            # Se tudo bater = OK
+            df_res.loc[mask_both & mask_cv_match & mask_val_match & mask_mod_match & mask_data_match, 'Status'] = 'Batido - OK'
+            
+            # Se não bater, categoriza o erro específico (ordem de prioridade visual)
+            mask_err_both = mask_both & ~(mask_cv_match & mask_val_match & mask_mod_match & mask_data_match)
+            df_res.loc[mask_err_both & ~mask_data_match, 'Status'] = 'DATA INCORRETA'
+            df_res.loc[mask_err_both & ~mask_mod_match, 'Status'] = 'MOD INCORRETA'
+            df_res.loc[mask_err_both & ~mask_cv_match, 'Status'] = 'CV INCORRETO'
+            df_res.loc[mask_err_both & ~mask_val_match, 'Status'] = 'VALOR INCORRETO'
 
-            # --- 5. INTELIGÊNCIA: PAREAMENTO EM 2 PASSOS ---
+            # --- 5. INTELIGÊNCIA: PAREAMENTO EM 3 PASSOS ---
             id_count = 1
             
-            # PASSO 1: O ERRO NO AUTO (Bate Valor, CV e Modalidade)
+            # PASSO 1: O AUTO INCORRETO (Bate Valor, CV e Modalidade)
             mask_fh = df_res['Status'] == 'Falta na Getnet'
             mask_fg = df_res['Status'] == 'Falta no HITS'
             
@@ -209,7 +219,7 @@ if hits_file and getnet_file:
                     limite = min(len(idx_h), len(idx_g))
                     
                     for i in range(limite):
-                        df_res.loc[idx_h[i], 'Status'] = df_res.loc[idx_g[i], 'Status'] = 'ERRO NO AUTO'
+                        df_res.loc[idx_h[i], 'Status'] = df_res.loc[idx_g[i], 'Status'] = 'AUTO INCORRETO'
                         df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
                         id_count += 1
             
@@ -234,15 +244,21 @@ if hits_file and getnet_file:
                     
             df_res = df_res.drop(columns=['K_H_Full', 'K_G_Full', 'K_H_Val', 'K_G_Val'])
 
+            # PASSO 3: ATRIBUIR ID PARA TODOS OS OUTROS ERROS ISOLADOS
+            mask_erros_unicos = df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO'])
+            for idx in df_res[mask_erros_unicos].index:
+                if df_res.loc[idx, 'ID'] == '':
+                    df_res.loc[idx, 'ID'] = f'#{id_count}'
+                    id_count += 1
+
             # REGRA "A VERIFICAR"
             df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
 
             # Ordenação e Limpeza
-            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'ERRO NO AUTO':3, 'A VERIFICAR':4, 'Divergência':5, 'Batido - OK':6}
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'AUTO INCORRETO':3, 'CV INCORRETO':4, 'MOD INCORRETA':5, 'DATA INCORRETA':6, 'VALOR INCORRETO':7, 'A VERIFICAR':8, 'Batido - OK':9}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
-            # --- ADICIONADA A COLUNA 'CONTA' AO LADO DE 'PAGAMENTO' ---
             cols_f = ['ID', 'Status', 'Pagamento', 'Conta', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
             df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
             for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
@@ -255,7 +271,6 @@ if hits_file and getnet_file:
                 
                 if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
                 elif st_val == 'Falta na Getnet':
-                    # Conta adicionada aqui para ficar vermelha
                     for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
                 elif st_val == 'Falta no HITS':
@@ -263,7 +278,7 @@ if hits_file and getnet_file:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
                 elif st_val == 'A VERIFICAR':
                     if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
-                elif st_val == 'Divergência':
+                elif st_val in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
                     if str(row['CV_H']) != str(row['CV_G']):
                         if 'CV_H' in cols: est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
                         if 'CV_G' in cols: est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
@@ -273,7 +288,10 @@ if hits_file and getnet_file:
                     if simplifica_mod(row['Modalidade_H']) != simplifica_mod(row['Modalidade_G']):
                         if 'Modalidade_H' in cols: est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
                         if 'Modalidade_G' in cols: est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'ERRO NO AUTO':
+                    if str(row['Data_H']) != str(row['Data_G']):
+                        if 'Data_H' in cols: est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'Data_G' in cols: est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
+                elif st_val == 'AUTO INCORRETO':
                     if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
                 
                 if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
@@ -287,7 +305,7 @@ if hits_file and getnet_file:
             c1.metric("Total", len(df_res))
             c2.metric("OK", len(df_res[df_res['Status'] == 'Batido - OK']))
             c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
-            c4.metric("Inconsistências", len(df_res[df_res['Status'].isin(['Divergência', 'ERRO NO AUTO'])]))
+            c4.metric("Inconsistências", len(df_res[df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO'])]))
             c5.metric("A Verificar", len(df_res[df_res['Status'] == 'A VERIFICAR']))
 
             st.dataframe(df_res.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
@@ -332,7 +350,6 @@ if hits_file and getnet_file:
                     if st_v == 'Batido - OK':
                         for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
                     elif st_v == 'Falta na Getnet':
-                        # Conta adicionada aqui para ficar vermelha no Excel
                         for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                             if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
                     elif st_v == 'Falta no HITS':
@@ -340,9 +357,9 @@ if hits_file and getnet_file:
                             if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
                     elif st_v == 'A VERIFICAR':
                         ws.cell(r, idx['Status']).fill = f_blu
-                    elif st_v == 'ERRO NO AUTO':
+                    elif st_v == 'AUTO INCORRETO':
                         if 'Auto' in idx: ws.cell(r, idx['Auto']).fill = f_org
-                    elif st_v == 'Divergência':
+                    elif st_v in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
                         if str(ws.cell(r, idx['CV_H']).value) != str(ws.cell(r, idx['CV_G']).value):
                             if 'CV_H' in idx: ws.cell(r, idx['CV_H']).fill = f_org
                             if 'CV_G' in idx: ws.cell(r, idx['CV_G']).fill = f_org
@@ -355,6 +372,12 @@ if hits_file and getnet_file:
                         if simplifica_mod(mod_h_val) != simplifica_mod(mod_g_val):
                             if 'Modalidade_H' in idx: ws.cell(r, idx['Modalidade_H']).fill = f_org
                             if 'Modalidade_G' in idx: ws.cell(r, idx['Modalidade_G']).fill = f_org
+                            
+                        data_h_val = str(ws.cell(r, idx['Data_H']).value or '')
+                        data_g_val = str(ws.cell(r, idx['Data_G']).value or '')
+                        if data_h_val != data_g_val:
+                            if 'Data_H' in idx: ws.cell(r, idx['Data_H']).fill = f_org
+                            if 'Data_G' in idx: ws.cell(r, idx['Data_G']).fill = f_org
 
                     if id_val != '' and 'ID' in idx:
                         ws.cell(r, idx['ID']).fill = f_ylw
