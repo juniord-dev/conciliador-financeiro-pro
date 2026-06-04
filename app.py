@@ -389,11 +389,18 @@ if hits_file and getnet_file:
                 
                 # PLANILHA 2: RESUMO DINHEIRO
                 if not df_dinheiro_resumo.empty:
-                    df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro')
-                    ws_din = writer.sheets['Dinheiro']
+                    # 1. Tabela detalhada (Data, Usuário, Total Recebido) nas colunas A, B, C
+                    df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=0)
                     
+                    # 2. Tabela de Totais por Dia (Pula a coluna D, escreve na E e F)
+                    df_dinheiro_totais = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
+                    df_dinheiro_totais.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
+                    df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=4)
+                    
+                    ws_din = writer.sheets['Dinheiro']
                     ws_din.freeze_panes = 'A2'
                     
+                    # Auto-ajuste das colunas
                     for column in ws_din.columns:
                         max_length = 0
                         col_letter = column[0].column_letter
@@ -403,11 +410,15 @@ if hits_file and getnet_file:
                             except: pass
                         ws_din.column_dimensions[col_letter].width = min((max_length + 2), 35)
                         
+                    # Centralização e Formatação de Moeda
                     for r in range(1, ws_din.max_row + 1):
                         for c in range(1, ws_din.max_column + 1):
-                            ws_din.cell(r, c).alignment = center_align
-                        if r > 1:
-                            ws_din.cell(r, 3).number_format = '"R$" #,##0.00'
+                            cell = ws_din.cell(r, c)
+                            cell.alignment = center_align
+                            
+                            # Aplica R$ na coluna C (índice 3 - Total Recebido) e F (índice 6 - Total do Dia)
+                            if r > 1 and c in [3, 6] and cell.value != '':
+                                cell.number_format = '"R$" #,##0.00'
 
             st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
