@@ -241,4 +241,175 @@ if hits_file and getnet_file:
             
             for k in chaves_val:
                 idx_h = df_res[(df_res['Status'] == 'Falta na Getnet') & (df_res['K_H_Val'] == k)].index
-                idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (
+                idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (df_res['K_G_Val'] == k)].index
+                limite = min(len(idx_h), len(idx_g))
+                
+                for i in range(limite):
+                    df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
+                    id_count += 1
+                    
+            df_res = df_res.drop(columns=['K_H_Full', 'K_G_Full', 'K_H_Val', 'K_G_Val'])
+
+            mask_erros_unicos = df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO'])
+            for idx in df_res[mask_erros_unicos].index:
+                if df_res.loc[idx, 'ID'] == '':
+                    df_res.loc[idx, 'ID'] = f'#{id_count}'
+                    id_count += 1
+
+            df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
+
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'AUTO INCORRETO':3, 'CV INCORRETO':4, 'MOD INCORRETA':5, 'DATA INCORRETA':6, 'VALOR INCORRETO':7, 'A VERIFICAR':8, 'Batido - OK':9}
+            df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
+            df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
+            
+            cols_f = ['ID', 'Status', 'Pagamento', 'Conta', 'Valor_H', 'Valor_G', 'Auto', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
+            df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
+            for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
+
+            # --- PINTURA CIRÚRGICA (TELA) ---
+            def cor_tela(row):
+                est = [''] * len(row)
+                cols = list(row.index)
+                st_val = row['Status']
+                
+                if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
+                elif st_val == 'Falta na Getnet':
+                    for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                        if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
+                elif st_val == 'Falta no HITS':
+                    for c in ['Valor_G', 'CV_G', 'Data_G', 'Modalidade_G']:
+                        if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
+                elif st_val == 'A VERIFICAR':
+                    if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
+                elif st_val in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
+                    if str(row['CV_H']) != str(row['CV_G']):
+                        if 'CV_H' in cols: est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'CV_G' in cols: est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
+                    if not np.isclose(float(row['Valor_H'] or 0), float(row['Valor_G'] or 0), atol=0.01):
+                        if 'Valor_H' in cols: est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'Valor_G' in cols: est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
+                    if simplifica_mod(row['Modalidade_H']) != simplifica_mod(row['Modalidade_G']):
+                        if 'Modalidade_H' in cols: est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'Modalidade_G' in cols: est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
+                    if str(row['Data_H']) != str(row['Data_G']):
+                        if 'Data_H' in cols: est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
+                        if 'Data_G' in cols: est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
+                elif st_val == 'AUTO INCORRETO':
+                    if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
+                
+                if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
+                    est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
+                    
+                return est
+
+            # --- DASHBOARD ---
+            st.success("✅ Conciliação Realizada!")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Total", len(df_res))
+            c2.metric("OK", len(df_res[df_res['Status'] == 'Batido - OK']))
+            c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
+            c4.metric("Inconsistências", len(df_res[df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO'])]))
+            c5.metric("A Verificar", len(df_res[df_res['Status'] == 'A VERIFICAR']))
+
+            st.dataframe(df_res.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
+
+            # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                
+                # PLANILHA 1: RESULTADO PRINCIPAL
+                df_res.to_excel(writer, index=False, sheet_name='Resultado')
+                ws = writer.sheets['Resultado']
+                
+                ws.freeze_panes = 'A2'
+                ws.auto_filter.ref = ws.dimensions
+                
+                for column in ws.columns:
+                    max_length = 0
+                    col_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
+                        except: pass
+                    ws.column_dimensions[col_letter].width = min((max_length + 2), 35)
+
+                f_ok, f_red, f_org, f_blu, f_ylw = PatternFill("solid", "E6FFED"), PatternFill("solid", "FFEEF0"), PatternFill("solid", "FFB067"), PatternFill("solid", "D0EBFF"), PatternFill("solid", "FCE83A")
+                center_align = Alignment(horizontal="center", vertical="center")
+                
+                for c in range(1, ws.max_column + 1):
+                    ws.cell(1, c).alignment = center_align
+
+                idx = {n: i for i, n in enumerate(df_res.columns, 1)}
+
+                for r in range(2, ws.max_row + 1):
+                    st_v = ws.cell(r, idx['Status']).value
+                    id_val = str(ws.cell(r, idx['ID']).value or '').strip()
+                    
+                    for c in range(1, ws.max_column + 1):
+                        ws.cell(r, c).alignment = center_align
+                    
+                    for c_n in ['Valor_H', 'Valor_G']:
+                        if c_n in idx and ws.cell(r, idx[c_n]).value != '':
+                            ws.cell(r, idx[c_n]).number_format = '"R$" #,##0.00'
+                    
+                    if st_v == 'Batido - OK':
+                        for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
+                    elif st_v == 'Falta na Getnet':
+                        for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
+                    elif st_v == 'Falta no HITS':
+                        for c_n in ['Valor_G', 'CV_G', 'Data_G', 'Modalidade_G']:
+                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
+                    elif st_v == 'A VERIFICAR':
+                        ws.cell(r, idx['Status']).fill = f_blu
+                    elif st_v == 'AUTO INCORRETO':
+                        if 'Auto' in idx: ws.cell(r, idx['Auto']).fill = f_org
+                    elif st_v in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
+                        if str(ws.cell(r, idx['CV_H']).value) != str(ws.cell(r, idx['CV_G']).value):
+                            if 'CV_H' in idx: ws.cell(r, idx['CV_H']).fill = f_org
+                            if 'CV_G' in idx: ws.cell(r, idx['CV_G']).fill = f_org
+                        if not np.isclose(float(ws.cell(r, idx['Valor_H']).value or 0), float(ws.cell(r, idx['Valor_G']).value or 0), atol=0.01):
+                            if 'Valor_H' in idx: ws.cell(r, idx['Valor_H']).fill = f_org
+                            if 'Valor_G' in idx: ws.cell(r, idx['Valor_G']).fill = f_org
+                        
+                        mod_h_val = str(ws.cell(r, idx['Modalidade_H']).value or '')
+                        mod_g_val = str(ws.cell(r, idx['Modalidade_G']).value or '')
+                        if simplifica_mod(mod_h_val) != simplifica_mod(mod_g_val):
+                            if 'Modalidade_H' in idx: ws.cell(r, idx['Modalidade_H']).fill = f_org
+                            if 'Modalidade_G' in idx: ws.cell(r, idx['Modalidade_G']).fill = f_org
+                            
+                        data_h_val = str(ws.cell(r, idx['Data_H']).value or '')
+                        data_g_val = str(ws.cell(r, idx['Data_G']).value or '')
+                        if data_h_val != data_g_val:
+                            if 'Data_H' in idx: ws.cell(r, idx['Data_H']).fill = f_org
+                            if 'Data_G' in idx: ws.cell(r, idx['Data_G']).fill = f_org
+
+                    if id_val != '' and 'ID' in idx:
+                        ws.cell(r, idx['ID']).fill = f_ylw
+                
+                # PLANILHA 2: RESUMO DINHEIRO
+                if not df_dinheiro_resumo.empty:
+                    df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro')
+                    ws_din = writer.sheets['Dinheiro']
+                    
+                    ws_din.freeze_panes = 'A2'
+                    
+                    for column in ws_din.columns:
+                        max_length = 0
+                        col_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
+                            except: pass
+                        ws_din.column_dimensions[col_letter].width = min((max_length + 2), 35)
+                        
+                    for r in range(1, ws_din.max_row + 1):
+                        for c in range(1, ws_din.max_column + 1):
+                            ws_din.cell(r, c).alignment = center_align
+                        if r > 1:
+                            ws_din.cell(r, 3).number_format = '"R$" #,##0.00'
+
+            st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+else:
+    st.info("💡 Dica: Arraste os arquivos acima para começar.")
