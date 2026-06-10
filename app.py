@@ -185,58 +185,50 @@ if hits_file and getnet_file:
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
             
-            # Formatação FORÇADA Padrão Brasileiro (dayfirst=True)
+            # Formata para exibir APENAS A DATA (Removendo a hora) e forçando padrão brasileiro com dayfirst=True
             df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
             df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
 
+            # Inicializa status base para tratamento das faltas e discrepâncias
             df_res['Status'] = 'VALOR INCORRETO'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
             df_res.loc[df_res['_merge'] == 'right_only', 'Status'] = 'Falta no HITS'
             
-            mask_both = df_res['_merge'] == 'both'
-            mask_cv_match = (df_res['CV_H'] == df_res['CV_G'])
-            mask_val_match = np.isclose(pd.to_numeric(df_res['Valor_H'], errors='coerce').fillna(0), pd.to_numeric(df_res['Valor_G'], errors='coerce').fillna(0), atol=0.01)
-            mask_mod_match = (df_res['Modalidade_H'].apply(simplifica_mod) == df_res['Modalidade_G'].apply(simplifica_mod))
-            mask_data_match = (df_res['Data_H'] == df_res['Data_G'])
-            
-            df_res.loc[mask_both & mask_cv_match & mask_val_match & mask_mod_match & mask_data_match, 'Status'] = 'Batido - OK'
-            
-            mask_err_both = mask_both & ~(mask_cv_match & mask_val_match & mask_mod_match & mask_data_match)
-            df_res.loc[mask_err_both & ~mask_data_match, 'Status'] = 'DATA INCORRETA'
-            df_res.loc[mask_err_both & ~mask_mod_match, 'Status'] = 'MOD INCORRETA'
-            df_res.loc[mask_err_both & ~mask_cv_match, 'Status'] = 'CV INCORRETO'
-            df_res.loc[mask_err_both & ~mask_val_match, 'Status'] = 'VALOR INCORRETO'
+            # REGRA "A VERIFICAR" executada antes do pareamento para blindar o PIX MANUAL de casamentos incorretos
+            df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
 
-            # --- 5. INTELIGÊNCIA: PAREAMENTO EM 3 PASSOS ---
+            # Processamento de linhas combinadas nativamente pelo Auto (_merge == 'both') seguindo estritamente a hierarquia de prioridades
+            for idx in df_res[df_res['_merge'] == 'both'].index:
+                v_h = pd.to_numeric(df_res.loc[idx, 'Valor_H'], errors='coerce') or 0
+                v_g = pd.to_numeric(df_res.loc[idx, 'Valor_G'], errors='coerce') or 0
+                cv_h = str(df_res.loc[idx, 'CV_H']).strip()
+                cv_g = str(df_res.loc[idx, 'CV_G']).strip()
+                mod_h = simplifica_mod(df_res.loc[idx, 'Modalidade_H'])
+                mod_g = simplifica_mod(df_res.loc[idx, 'Modalidade_G'])
+                dt_h = str(df_res.loc[idx, 'Data_H']).strip()
+                dt_g = str(df_res.loc[idx, 'Data_G']).strip()
+                
+                if np.isclose(v_h, v_g, atol=0.01) and cv_h == cv_g and mod_h == mod_g and dt_h == dt_g:
+                    df_res.loc[idx, 'Status'] = 'Batido - OK'
+                elif dt_h != dt_g:
+                    df_res.loc[idx, 'Status'] = 'DATA INCORRETA'
+                elif mod_h != mod_g:
+                    df_res.loc[idx, 'Status'] = 'ERRO DE MODALIDADE'
+                elif not np.isclose(v_h, v_g, atol=0.01):
+                    df_res.loc[idx, 'Status'] = 'VALOR INCORRETO'
+                else:
+                    df_res.loc[idx, 'Status'] = 'CV INCORRETO'
+
+            # --- 5. INTELIGÊNCIA: PAREAMENTO 1-TO-1 POR VALOR COM ANÁLISE DE PRIORIDADES ---
             id_count = 1
             
             mask_fh = df_res['Status'] == 'Falta na Getnet'
             mask_fg = df_res['Status'] == 'Falta no HITS'
             
-            df_res['K_H_Full'] = df_res['Valor_H'].astype(float).round(2).astype(str) + "_" + df_res['CV_H'] + "_" + df_res['Modalidade_H'].apply(simplifica_mod)
-            df_res['K_G_Full'] = df_res['Valor_G'].astype(float).round(2).astype(str) + "_" + df_res['CV_G'] + "_" + df_res['Modalidade_G'].apply(simplifica_mod)
-            
-            chaves_full = set(df_res.loc[mask_fh, 'K_H_Full']).intersection(set(df_res.loc[mask_fg, 'K_G_Full']))
-            
-            for k in chaves_full:
-                partes = k.split('_')
-                if len(partes) >= 2 and partes[1] != '':
-                    idx_h = df_res[(df_res['Status'] == 'Falta na Getnet') & (df_res['K_H_Full'] == k)].index
-                    idx_g = df_res[(df_res['Status'] == 'Falta no HITS') & (df_res['K_G_Full'] == k)].index
-                    limite = min(len(idx_h), len(idx_g))
-                    
-                    for i in range(limite):
-                        df_res.loc[idx_h[i], 'Status'] = df_res.loc[idx_g[i], 'Status'] = 'AUTO INCORRETO'
-                        df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
-                        id_count += 1
-            
-            mask_fh2 = df_res['Status'] == 'Falta na Getnet'
-            mask_fg2 = df_res['Status'] == 'Falta no HITS'
-            
             df_res['K_H_Val'] = df_res['Valor_H'].astype(float).round(2).astype(str)
             df_res['K_G_Val'] = df_res['Valor_G'].astype(float).round(2).astype(str)
             
-            chaves_val = set(df_res.loc[mask_fh2, 'K_H_Val']).intersection(set(df_res.loc[mask_fg2, 'K_G_Val']))
+            chaves_val = set(df_res.loc[mask_fh, 'K_H_Val']).intersection(set(df_res.loc[mask_fg, 'K_G_Val']))
             chaves_val = [c for c in chaves_val if c != '0.0' and c != 'nan']
             
             for k in chaves_val:
@@ -245,20 +237,40 @@ if hits_file and getnet_file:
                 limite = min(len(idx_h), len(idx_g))
                 
                 for i in range(limite):
-                    df_res.loc[idx_h[i], 'ID'] = df_res.loc[idx_g[i], 'ID'] = f'#{id_count}'
+                    h_i = idx_h[i]
+                    g_i = idx_g[i]
+                    
+                    df_res.loc[h_i, 'ID'] = df_res.loc[g_i, 'ID'] = f'#{id_count}'
                     id_count += 1
                     
-            df_res = df_res.drop(columns=['K_H_Full', 'K_G_Full', 'K_H_Val', 'K_G_Val'])
+                    dt_h = str(df_res.loc[h_i, 'Data_H']).strip()
+                    dt_g = str(df_res.loc[g_i, 'Data_G']).strip()
+                    mod_h = simplifica_mod(df_res.loc[h_i, 'Modalidade_H'])
+                    mod_g = simplifica_mod(df_res.loc[g_i, 'Modalidade_G'])
+                    cv_h = str(df_res.loc[h_i, 'CV_H']).strip()
+                    cv_g = str(df_res.loc[g_i, 'CV_G']).strip()
+                    
+                    # Hierarquia de prioridade aplicada no pareamento 1 para 1
+                    if dt_h != dt_g:
+                        df_res.loc[h_i, 'Status'] = df_res.loc[g_i, 'Status'] = 'DATA INCORRETA'
+                    elif mod_h != mod_g:
+                        df_res.loc[h_i, 'Status'] = df_res.loc[g_i, 'Status'] = 'ERRO DE MODALIDADE'
+                    elif cv_h != cv_g:
+                        df_res.loc[h_i, 'Status'] = df_res.loc[g_i, 'Status'] = 'CV INCORRETO'
+                    else:
+                        df_res.loc[h_i, 'Status'] = df_res.loc[g_i, 'Status'] = 'AUTO INCORRETO'
+                        
+            df_res = df_res.drop(columns=['K_H_Val', 'K_G_Val'])
 
-            mask_erros_unicos = df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO'])
-            for idx in df_res[mask_erros_unicos].index:
+            # PASSO 2: ATRIBUIR ID ÚNICO PARA ABSOLUTAMENTE QUALQUER ERRO QUE TENHA SOBRADO SEM ID
+            mask_erros_geral = df_res['Status'].isin(['CV INCORRETO', 'ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
+            for idx in df_res[mask_erros_geral].index:
                 if df_res.loc[idx, 'ID'] == '':
                     df_res.loc[idx, 'ID'] = f'#{id_count}'
                     id_count += 1
 
-            df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
-
-            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'AUTO INCORRETO':3, 'CV INCORRETO':4, 'MOD INCORRETA':5, 'DATA INCORRETA':6, 'VALOR INCORRETO':7, 'A VERIFICAR':8, 'Batido - OK':9}
+            # Ordenação e Limpeza Final
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'AUTO INCORRETO':3, 'CV INCORRETO':4, 'ERRO DE MODALIDADE':5, 'DATA INCORRETA':6, 'VALOR INCORRETO':7, 'A VERIFICAR':8, 'Batido - OK':9}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
@@ -281,21 +293,22 @@ if hits_file and getnet_file:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
                 elif st_val == 'A VERIFICAR':
                     if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
-                elif st_val in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
-                    if str(row['CV_H']) != str(row['CV_G']):
-                        if 'CV_H' in cols: est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
-                        if 'CV_G' in cols: est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
-                    if not np.isclose(float(row['Valor_H'] or 0), float(row['Valor_G'] or 0), atol=0.01):
-                        if 'Valor_H' in cols: est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
-                        if 'Valor_G' in cols: est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
-                    if simplifica_mod(row['Modalidade_H']) != simplifica_mod(row['Modalidade_G']):
-                        if 'Modalidade_H' in cols: est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
-                        if 'Modalidade_G' in cols: est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
-                    if str(row['Data_H']) != str(row['Data_G']):
-                        if 'Data_H' in cols: est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
-                        if 'Data_G' in cols: est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
+                
+                # Pintura cirúrgica focada exclusivamente no campo do erro correspondente
+                elif st_val == 'CV INCORRETO':
+                    if 'CV_H' in cols and row['CV_H'] != '': est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
+                    if 'CV_G' in cols and row['CV_G'] != '': est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
+                elif st_val == 'ERRO DE MODALIDADE':
+                    if 'Modalidade_H' in cols and row['Modalidade_H'] != '': est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
+                    if 'Modalidade_G' in cols and row['Modalidade_G'] != '': est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
+                elif st_val == 'DATA INCORRETA':
+                    if 'Data_H' in cols and row['Data_H'] != '': est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
+                    if 'Data_G' in cols and row['Data_G'] != '': est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
+                elif st_val == 'VALOR INCORRETO':
+                    if 'Valor_H' in cols and row['Valor_H'] != '': est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
+                    if 'Valor_G' in cols and row['Valor_G'] != '': est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
                 elif st_val == 'AUTO INCORRETO':
-                    if 'Auto' in cols: est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
+                    if 'Auto' in cols and row['Auto'] != '': est[cols.index('Auto')] = 'background-color: #ffb067; font-weight: bold;'
                 
                 if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
                     est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
@@ -308,7 +321,7 @@ if hits_file and getnet_file:
             c1.metric("Total", len(df_res))
             c2.metric("OK", len(df_res[df_res['Status'] == 'Batido - OK']))
             c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
-            c4.metric("Inconsistências", len(df_res[df_res['Status'].isin(['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO'])]))
+            c4.metric("Inconsistências", len(df_res[df_res['Status'].isin(['CV INCORRETO', 'ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO'])]))
             c5.metric("A Verificar", len(df_res[df_res['Status'] == 'A VERIFICAR']))
 
             st.dataframe(df_res.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
@@ -362,37 +375,30 @@ if hits_file and getnet_file:
                             if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
                     elif st_v == 'A VERIFICAR':
                         ws.cell(r, idx['Status']).fill = f_blu
+                    
+                    # Pintura cirúrgica no Excel baseada estritamente na prioridade do Status
+                    elif st_v == 'CV INCORRETO':
+                        if 'CV_H' in idx and ws.cell(r, idx['CV_H']).value != '': ws.cell(r, idx['CV_H']).fill = f_org
+                        if 'CV_G' in idx and ws.cell(r, idx['CV_G']).value != '': ws.cell(r, idx['CV_G']).fill = f_org
+                    elif st_v == 'ERRO DE MODALIDADE':
+                        if 'Modalidade_H' in idx and ws.cell(r, idx['Modalidade_H']).value != '': ws.cell(r, idx['Modalidade_H']).fill = f_org
+                        if 'Modalidade_G' in idx and ws.cell(r, idx['Modalidade_G']).value != '': ws.cell(r, idx['Modalidade_G']).fill = f_org
+                    elif st_v == 'DATA INCORRETA':
+                        if 'Data_H' in idx and ws.cell(r, idx['Data_H']).value != '': ws.cell(r, idx['Data_H']).fill = f_org
+                        if 'Data_G' in idx and ws.cell(r, idx['Data_G']).value != '': ws.cell(r, idx['Data_G']).fill = f_org
+                    elif st_v == 'VALOR INCORRETO':
+                        if 'Valor_H' in idx and ws.cell(r, idx['Valor_H']).value != '': ws.cell(r, idx['Valor_H']).fill = f_org
+                        if 'Valor_G' in idx and ws.cell(r, idx['Valor_G']).value != '': ws.cell(r, idx['Valor_G']).fill = f_org
                     elif st_v == 'AUTO INCORRETO':
-                        if 'Auto' in idx: ws.cell(r, idx['Auto']).fill = f_org
-                    elif st_v in ['CV INCORRETO', 'MOD INCORRETA', 'DATA INCORRETA', 'VALOR INCORRETO']:
-                        if str(ws.cell(r, idx['CV_H']).value) != str(ws.cell(r, idx['CV_G']).value):
-                            if 'CV_H' in idx: ws.cell(r, idx['CV_H']).fill = f_org
-                            if 'CV_G' in idx: ws.cell(r, idx['CV_G']).fill = f_org
-                        if not np.isclose(float(ws.cell(r, idx['Valor_H']).value or 0), float(ws.cell(r, idx['Valor_G']).value or 0), atol=0.01):
-                            if 'Valor_H' in idx: ws.cell(r, idx['Valor_H']).fill = f_org
-                            if 'Valor_G' in idx: ws.cell(r, idx['Valor_G']).fill = f_org
-                        
-                        mod_h_val = str(ws.cell(r, idx['Modalidade_H']).value or '')
-                        mod_g_val = str(ws.cell(r, idx['Modalidade_G']).value or '')
-                        if simplifica_mod(mod_h_val) != simplifica_mod(mod_g_val):
-                            if 'Modalidade_H' in idx: ws.cell(r, idx['Modalidade_H']).fill = f_org
-                            if 'Modalidade_G' in idx: ws.cell(r, idx['Modalidade_G']).fill = f_org
-                            
-                        data_h_val = str(ws.cell(r, idx['Data_H']).value or '')
-                        data_g_val = str(ws.cell(r, idx['Data_G']).value or '')
-                        if data_h_val != data_g_val:
-                            if 'Data_H' in idx: ws.cell(r, idx['Data_H']).fill = f_org
-                            if 'Data_G' in idx: ws.cell(r, idx['Data_G']).fill = f_org
+                        if 'Auto' in idx and ws.cell(r, idx['Auto']).value != '': ws.cell(r, idx['Auto']).fill = f_org
 
                     if id_val != '' and 'ID' in idx:
                         ws.cell(r, idx['ID']).fill = f_ylw
                 
                 # PLANILHA 2: RESUMO DINHEIRO
                 if not df_dinheiro_resumo.empty:
-                    # 1. Tabela detalhada (Data, Usuário, Total Recebido) nas colunas A, B, C
                     df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=0)
                     
-                    # 2. Tabela de Totais por Dia (Pula a coluna D, escreve na E e F)
                     df_dinheiro_totais = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
                     df_dinheiro_totais.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
                     df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=4)
@@ -400,7 +406,6 @@ if hits_file and getnet_file:
                     ws_din = writer.sheets['Dinheiro']
                     ws_din.freeze_panes = 'A2'
                     
-                    # Auto-ajuste das colunas
                     for column in ws_din.columns:
                         max_length = 0
                         col_letter = column[0].column_letter
@@ -410,13 +415,10 @@ if hits_file and getnet_file:
                             except: pass
                         ws_din.column_dimensions[col_letter].width = min((max_length + 2), 35)
                         
-                    # Centralização e Formatação de Moeda
                     for r in range(1, ws_din.max_row + 1):
                         for c in range(1, ws_din.max_column + 1):
                             cell = ws_din.cell(r, c)
                             cell.alignment = center_align
-                            
-                            # Aplica R$ na coluna C (índice 3 - Total Recebido) e F (índice 6 - Total do Dia)
                             if r > 1 and c in [3, 6] and cell.value != '':
                                 cell.number_format = '"R$" #,##0.00'
 
