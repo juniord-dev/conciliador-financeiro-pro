@@ -41,7 +41,7 @@ st.markdown("""
 
 # --- FUNÇÕES DE PROCESSAMENTO ---
 
-def garantir_numero(serie):
+def garantizar_numero(serie):
     if serie.dtype == 'object':
         serie = serie.astype(str).str.replace('R$', '', regex=False).str.strip()
         serie = serie.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
@@ -79,11 +79,11 @@ def formatar_usuario(nome_cru):
     return nome_str.title()
 
 def simplifica_mod(m):
-    m = str(m).upper()
+    m = str(m).upper().strip()
     if 'CRED' in m or 'CRÉD' in m: return 'CRED'
     if 'DEB' in m or 'DÉB' in m: return 'DEB'
     if 'PIX' in m: return 'PIX'
-    return 'OUTRO'
+    return m 
 
 # --- INTERFACE ---
 
@@ -124,7 +124,7 @@ if hits_file and getnet_file:
                 col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
                 col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
                 df_g_pix = pd.DataFrame({
-                    'Valor_G': garantir_numero(df_g_pix[col_v_pix]) if col_v_pix else 0,
+                    'Valor_G': garantizar_numero(df_g_pix[col_v_pix]) if col_v_pix else 0,
                     'Data_G': df_g_pix[col_d_pix] if col_d_pix else '',
                     'Modalidade_G': 'GETNET PIX', 'Auto': 'PIX_SEM_AUT', 'CV_G': ''
                 })
@@ -144,18 +144,16 @@ if hits_file and getnet_file:
             
             df_hits['Usuário'] = df_hits['Usuário'].apply(formatar_usuario)
 
-            # EXTRAÇÃO DO DINHEIRO ANTES DO FILTRO
+            # EXTRAÇÃO DO DINHEIRO
             mask_dinheiro = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('DINHEIRO', na=False)
             df_dinheiro = df_hits[mask_dinheiro].copy()
             
-            # Processamento da Aba Dinheiro
-            df_dinheiro['Valor_H'] = garantir_numero(df_dinheiro['Valor_H'])
+            df_dinheiro['Valor_H'] = garantizar_numero(df_dinheiro['Valor_H'])
             df_dinheiro['Data_H'] = pd.to_datetime(df_dinheiro['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
             df_dinheiro_resumo = df_dinheiro.groupby(['Data_H', 'Usuário'], as_index=False)['Valor_H'].sum()
             df_dinheiro_resumo.rename(columns={'Data_H': 'Data', 'Valor_H': 'Total Recebido'}, inplace=True)
             df_dinheiro_resumo = df_dinheiro_resumo.sort_values(by=['Data', 'Usuário'])
             
-            # Removemos os dados desnecessários para a conciliação principal
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
 
@@ -165,15 +163,38 @@ if hits_file and getnet_file:
 
             for df in [df_h_cart, df_g_cartoes]:
                 df['Auto'] = df['Auto'].astype(str).str.strip().str.upper()
-                df['Valor_H' if 'Valor_H' in df.columns else 'Valor_G'] = garantir_numero(df['Valor_H' if 'Valor_H' in df.columns else 'Valor_G'])
+                df['Valor_H' if 'Valor_H' in df.columns else 'Valor_G'] = garantizar_numero(df['Valor_H' if 'Valor_H' in df.columns else 'Valor_G'])
 
             df_m_cart = pd.merge(df_h_cart, df_g_cartoes[['Auto', 'CV_G', 'Valor_G', 'Data_G', 'Modalidade_G']], on='Auto', how='outer', indicator=True)
 
+            # CORREÇÃO CRÍTICA DO PIX UTILIZANDO DATA + HORÁRIO DO LANÇAMENTO
             if not df_g_pix.empty:
-                df_h_pix['Valor_H'], df_g_pix['Valor_G'] = garantir_numero(df_h_pix['Valor_H']), garantir_numero(df_g_pix['Valor_G'])
-                df_h_pix['Match'] = df_h_pix.groupby(df_h_pix['Valor_H'].round(2)).cumcount()
-                df_g_pix['Match'] = df_g_pix.groupby(df_g_pix['Valor_G'].round(2)).cumcount()
-                df_m_pix = pd.merge(df_h_pix, df_g_pix, left_on=['Valor_H', 'Match'], right_on=['Valor_G', 'Match'], how='outer', indicator=True).drop(columns=['Match'])
+                df_h_pix['Valor_H'] = garantizar_numero(df_h_pix['Valor_H'])
+                df_g_pix['Valor_G'] = garantizar_numero(df_g_pix['Valor_G'])
+                
+                # Converte temporariamente para datetime real completo (Data + Hora) para ordenação cronológica precisa
+                df_h_pix['Dt_Datetime'] = pd.to_datetime(df_h_pix['Data_H'], errors='coerce', dayfirst=True)
+                df_g_pix['Dt_Datetime'] = pd.to_datetime(df_g_pix['Data_G'], errors='coerce', dayfirst=True)
+                
+                # Captura apenas o dia puro para servir de limitador espacial (trava por dia)
+                df_h_pix['Dt_Day'] = df_h_pix['Dt_Datetime'].dt.date
+                df_g_pix['Dt_Day'] = df_g_pix['Dt_Datetime'].dt.date
+                
+                # Ordena os dois relatórios de forma idêntica pelo tempo real
+                df_h_pix = df_h_pix.sort_values('Dt_Datetime')
+                df_g_pix = df_g_pix.sort_values('Dt_Datetime')
+                
+                # Aplica o cumcount restrito ao DIA do lançamento + VALOR (Evita o vazamento cross-day)
+                df_h_pix['Match'] = df_h_pix.groupby(['Dt_Day', df_h_pix['Valor_H'].round(2)]).cumcount()
+                df_g_pix['Match'] = df_g_pix.groupby(['Dt_Day', df_g_pix['Valor_G'].round(2)]).cumcount()
+                
+                # Mescla exigindo que coincida o DIA e a ORDEM de preenchimento daquele valor
+                df_m_pix = pd.merge(
+                    df_h_pix, df_g_pix, 
+                    left_on=['Dt_Day', 'Valor_H', 'Match'], 
+                    right_on=['Dt_Day', 'Valor_G', 'Match'], 
+                    how='outer', indicator=True
+                ).drop(columns=['Match', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
             else:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
@@ -185,19 +206,17 @@ if hits_file and getnet_file:
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
             
-            # Formata para exibir APENAS A DATA (Removendo a hora) e forçando padrão brasileiro com dayfirst=True
+            # Formata a exibição final para o usuário visualizando APENAS a data brasileira pura
             df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
             df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
 
-            # Inicializa status base para tratamento das faltas e discrepâncias
             df_res['Status'] = 'VALOR INCORRETO'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
             df_res.loc[df_res['_merge'] == 'right_only', 'Status'] = 'Falta no HITS'
             
-            # REGRA "A VERIFICAR" executada antes do pareamento para blindar o PIX MANUAL de casamentos incorretos
             df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
 
-            # Processamento de linhas combinadas nativamente pelo Auto (_merge == 'both') seguindo estritamente a hierarquia de prioridades
+            # Processamento de linhas com match direto
             for idx in df_res[df_res['_merge'] == 'both'].index:
                 v_h = pd.to_numeric(df_res.loc[idx, 'Valor_H'], errors='coerce') or 0
                 v_g = pd.to_numeric(df_res.loc[idx, 'Valor_G'], errors='coerce') or 0
@@ -219,7 +238,7 @@ if hits_file and getnet_file:
                 else:
                     df_res.loc[idx, 'Status'] = 'CV INCORRETO'
 
-            # --- 5. INTELIGÊNCIA: PAREAMENTO 1-TO-1 POR VALOR COM ANÁLISE DE PRIORIDADES ---
+            # --- 5. INTELIGÊNCIA: PAREAMENTO DE SOBRAS EM SEGUNDO NÍVEL POR VALOR ---
             id_count = 1
             
             mask_fh = df_res['Status'] == 'Falta na Getnet'
@@ -250,7 +269,6 @@ if hits_file and getnet_file:
                     cv_h = str(df_res.loc[h_i, 'CV_H']).strip()
                     cv_g = str(df_res.loc[g_i, 'CV_G']).strip()
                     
-                    # Hierarquia de prioridade aplicada no pareamento 1 para 1
                     if dt_h != dt_g:
                         df_res.loc[h_i, 'Status'] = df_res.loc[g_i, 'Status'] = 'DATA INCORRETA'
                     elif mod_h != mod_g:
@@ -262,14 +280,14 @@ if hits_file and getnet_file:
                         
             df_res = df_res.drop(columns=['K_H_Val', 'K_G_Val'])
 
-            # PASSO 2: ATRIBUIR ID ÚNICO PARA ABSOLUTAMENTE QUALQUER ERRO QUE TENHA SOBRADO SEM ID
+            # Entrega IDs sequenciais para erros/faltas avulsas remanescentes
             mask_erros_geral = df_res['Status'].isin(['CV INCORRETO', 'ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
             for idx in df_res[mask_erros_geral].index:
                 if df_res.loc[idx, 'ID'] == '':
                     df_res.loc[idx, 'ID'] = f'#{id_count}'
                     id_count += 1
 
-            # Ordenação e Limpeza Final
+            # Ordenação do relatório
             mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'AUTO INCORRETO':3, 'CV INCORRETO':4, 'ERRO DE MODALIDADE':5, 'DATA INCORRETA':6, 'VALOR INCORRETO':7, 'A VERIFICAR':8, 'Batido - OK':9}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
@@ -278,7 +296,7 @@ if hits_file and getnet_file:
             df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
             for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
 
-            # --- PINTURA CIRÚRGICA (TELA) ---
+            # --- PINTURA CIRÚRGICA (WEB INTERFACE) ---
             def cor_tela(row):
                 est = [''] * len(row)
                 cols = list(row.index)
@@ -294,7 +312,6 @@ if hits_file and getnet_file:
                 elif st_val == 'A VERIFICAR':
                     if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
                 
-                # Pintura cirúrgica focada exclusivamente no campo do erro correspondente
                 elif st_val == 'CV INCORRETO':
                     if 'CV_H' in cols and row['CV_H'] != '': est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
                     if 'CV_G' in cols and row['CV_G'] != '': est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
@@ -376,7 +393,6 @@ if hits_file and getnet_file:
                     elif st_v == 'A VERIFICAR':
                         ws.cell(r, idx['Status']).fill = f_blu
                     
-                    # Pintura cirúrgica no Excel baseada estritamente na prioridade do Status
                     elif st_v == 'CV INCORRETO':
                         if 'CV_H' in idx and ws.cell(r, idx['CV_H']).value != '': ws.cell(r, idx['CV_H']).fill = f_org
                         if 'CV_G' in idx and ws.cell(r, idx['CV_G']).value != '': ws.cell(r, idx['CV_G']).fill = f_org
@@ -395,7 +411,7 @@ if hits_file and getnet_file:
                     if id_val != '' and 'ID' in idx:
                         ws.cell(r, idx['ID']).fill = f_ylw
                 
-                # PLANILHA 2: RESUMO DINHEIRO
+                # PLANILHA 2: RESUMO DINHEIRO INTELIGENTE
                 if not df_dinheiro_resumo.empty:
                     df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=0)
                     
