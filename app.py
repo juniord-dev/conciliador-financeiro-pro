@@ -157,6 +157,11 @@ if hits_file and getnet_file:
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
 
+            # TRAVA DE SEGURANÇA MÁXIMA: Separar completamente o PIX MANUAL antes dos cruzamentos
+            mask_manual = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('MANUAL', na=False)
+            df_hits_manual = df_hits[mask_manual].copy()
+            df_hits = df_hits[~mask_manual].copy()
+
             # --- 3. CRUZAMENTOS MAIN ---
             mask_pix_h = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False)
             df_h_pix, df_h_cart = df_hits[mask_pix_h].copy(), df_hits[~mask_pix_h].copy()
@@ -167,28 +172,23 @@ if hits_file and getnet_file:
 
             df_m_cart = pd.merge(df_h_cart, df_g_cartoes[['Auto', 'CV_G', 'Valor_G', 'Data_G', 'Modalidade_G']], on='Auto', how='outer', indicator=True)
 
-            # CORREÇÃO CRÍTICA DO PIX UTILIZANDO DATA + HORÁRIO DO LANÇAMENTO
+            # Cruzamento Cronológico do PIX Automático (Livre do contágio do PIX Manual)
             if not df_g_pix.empty:
                 df_h_pix['Valor_H'] = garantizar_numero(df_h_pix['Valor_H'])
                 df_g_pix['Valor_G'] = garantizar_numero(df_g_pix['Valor_G'])
                 
-                # Converte temporariamente para datetime real completo (Data + Hora) para ordenação cronológica precisa
                 df_h_pix['Dt_Datetime'] = pd.to_datetime(df_h_pix['Data_H'], errors='coerce', dayfirst=True)
                 df_g_pix['Dt_Datetime'] = pd.to_datetime(df_g_pix['Data_G'], errors='coerce', dayfirst=True)
                 
-                # Captura apenas o dia puro para servir de limitador espacial (trava por dia)
                 df_h_pix['Dt_Day'] = df_h_pix['Dt_Datetime'].dt.date
                 df_g_pix['Dt_Day'] = df_g_pix['Dt_Datetime'].dt.date
                 
-                # Ordena os dois relatórios de forma idêntica pelo tempo real
                 df_h_pix = df_h_pix.sort_values('Dt_Datetime')
                 df_g_pix = df_g_pix.sort_values('Dt_Datetime')
                 
-                # Aplica o cumcount restrito ao DIA do lançamento + VALOR (Evita o vazamento cross-day)
                 df_h_pix['Match'] = df_h_pix.groupby(['Dt_Day', df_h_pix['Valor_H'].round(2)]).cumcount()
                 df_g_pix['Match'] = df_g_pix.groupby(['Dt_Day', df_g_pix['Valor_G'].round(2)]).cumcount()
                 
-                # Mescla exigindo que coincida o DIA e a ORDEM de preenchimento daquele valor
                 df_m_pix = pd.merge(
                     df_h_pix, df_g_pix, 
                     left_on=['Dt_Day', 'Valor_H', 'Match'], 
@@ -206,7 +206,6 @@ if hits_file and getnet_file:
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
             df_res['CV_G'] = df_res['CV_G'].apply(limpar_cv)
             
-            # Formata a exibição final para o usuário visualizando APENAS a data brasileira pura
             df_res['Data_H'] = pd.to_datetime(df_res['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
             df_res['Data_G'] = pd.to_datetime(df_res['Data_G'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
 
@@ -214,7 +213,13 @@ if hits_file and getnet_file:
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
             df_res.loc[df_res['_merge'] == 'right_only', 'Status'] = 'Falta no HITS'
             
-            df_res.loc[(df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper() == 'HOTEL TRANSFERENCIA/PIX MANUAL'), 'Status'] = 'A VERIFICAR'
+            # Injeta o PIX Manual isolado diretamente com o status imutável de "A VERIFICAR"
+            if not df_hits_manual.empty:
+                df_hits_manual['ID'] = ''
+                df_hits_manual['Status'] = 'A VERIFICAR'
+                df_hits_manual['_merge'] = 'left_only'
+                df_hits_manual['Data_H'] = pd.to_datetime(df_hits_manual['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
+                df_res = pd.concat([df_res, df_hits_manual], ignore_index=True)
 
             # Processamento de linhas com match direto
             for idx in df_res[df_res['_merge'] == 'both'].index:
@@ -280,7 +285,7 @@ if hits_file and getnet_file:
                         
             df_res = df_res.drop(columns=['K_H_Val', 'K_G_Val'])
 
-            # Entrega IDs sequenciais para erros/faltas avulsas remanescentes
+            # Entrega IDs sequenciais para erros/faltas avulsas (incluindo o PIX Manual "A Verificar")
             mask_erros_geral = df_res['Status'].isin(['CV INCORRETO', 'ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
             for idx in df_res[mask_erros_geral].index:
                 if df_res.loc[idx, 'ID'] == '':
