@@ -110,7 +110,7 @@ def obter_categoria_macro(mod_string):
 # --- INTERFACE E LÓGICA PRINCIPAL ---
 
 st.markdown("<h1 style='text-align: center;'>Conciliação Financeira HITS x Getnet</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; margin-bottom: 40px;'>Arraste seus relatórios abaixo para iniciar o cruzamento inteligente.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; margin-bottom: 40px;'>Arraste seus relatórios abaixo para iniciar o o inteligente.</p>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1: hits_file = st.file_uploader("🏨 Relatório HITS", type=["xlsx"], key="hits")
@@ -218,7 +218,7 @@ if hits_file and getnet_file:
             df_hits_manual = df_hits[mask_manual].copy()
             df_hits = df_hits[~mask_manual].copy()
 
-            # --- 3. CRUZAMENTOS MAIN ---
+            # --- 3. OS MAIN ---
             mask_pix_h = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False)
             df_h_pix, df_h_cart = df_hits[mask_pix_h].copy(), df_hits[~mask_pix_h].copy()
 
@@ -403,18 +403,30 @@ if hits_file and getnet_file:
             for idx_i in indices_both:
                 if idx_i in used_trocados or df_res.loc[idx_i, 'Status'] == 'Batido - OK':
                     continue
+                
+                # Trava 1: Se estiver vazio, pula (deixa para a regra de AUSENTES)
+                auto_h_i = str(df_res.loc[idx_i, 'Auto_H']).strip()
+                if auto_h_i == '': continue
+
                 v_h_i = pd.to_numeric(df_res.loc[idx_i, 'Valor_H'], errors='coerce') or 0
                 v_g_i = pd.to_numeric(df_res.loc[idx_i, 'Valor_G'], errors='coerce') or 0
+                dt_h_i = str(df_res.loc[idx_i, 'Data_H']).strip()
                 
                 for idx_j in indices_both:
                     if idx_j == idx_i or idx_j in used_trocados or df_res.loc[idx_j, 'Status'] == 'Batido - OK':
                         continue
+                    
+                    auto_h_j = str(df_res.loc[idx_j, 'Auto_H']).strip()
+                    if auto_h_j == '': continue
+
                     v_h_j = pd.to_numeric(df_res.loc[idx_j, 'Valor_H'], errors='coerce') or 0
                     v_g_j = pd.to_numeric(df_res.loc[idx_j, 'Valor_G'], errors='coerce') or 0
+                    dt_h_j = str(df_res.loc[idx_j, 'Data_H']).strip()
                     
-                    if np.isclose(v_h_i, v_g_j, atol=0.001) and np.isclose(v_g_i, v_h_j, atol=0.001):
-                        df_res.loc[idx_i, 'Status'] = 'AUTO/CV TROCADOS'
-                        df_res.loc[idx_j, 'Status'] = 'AUTO/CV TROCADOS'
+                    # Trava 2: Só cruza se as datas forem exatamente iguais
+                    if dt_h_i == dt_h_j and np.isclose(v_h_i, v_g_j, atol=0.001) and np.isclose(v_g_i, v_h_j, atol=0.001):
+                        df_res.loc[idx_i, 'Status'] = 'AUTO/CV INCORRETOS'
+                        df_res.loc[idx_j, 'Status'] = 'AUTO/CV INCORRETOS'
                         if df_res.loc[idx_i, 'ID'] == '': df_res.loc[idx_i, 'ID'] = f'#{id_count}'
                         if df_res.loc[idx_j, 'ID'] == '': df_res.loc[idx_j, 'ID'] = f'#{id_count}'
                         id_count += 1
@@ -462,7 +474,7 @@ if hits_file and getnet_file:
                     df_res.loc[idx, 'Status'] = 'AUTO/CV INVERTIDO'
 
             # --- ATRIBUIÇÃO FINAL DE IDs E ORDENAÇÃO ---
-            erros_isolamento = ['CV INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO', 'AUTO/CV TROCADOS']
+            erros_isolamento = ['CV INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO']
             
             mask_erros_geral = df_res['Status'].isin(erros_isolamento + ['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
             for idx in df_res[mask_erros_geral].index:
@@ -470,7 +482,7 @@ if hits_file and getnet_file:
                     df_res.loc[idx, 'ID'] = f'#{id_count}'
                     id_count += 1
 
-            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'ERRO DE MODALIDADE':4, 'DATA INCORRETA':5, 'VALOR INCORRETO':6, 'A VERIFICAR':7, 'AUTO/CV TROCADOS':8, 'AUTO/CV INVERTIDO':9, 'AUTO/CV INCORRETOS':10, 'AUTO/CV AUSENTES':11, 'AUTO INCORRETO':12, 'CV INCORRETO':13, 'Batido - OK':14}
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'ERRO DE MODALIDADE':4, 'DATA INCORRETA':5, 'VALOR INCORRETO':6, 'A VERIFICAR':7, 'AUTO/CV INVERTIDO':8, 'AUTO/CV INCORRETOS':9, 'AUTO/CV AUSENTES':10, 'AUTO INCORRETO':11, 'CV INCORRETO':12, 'Batido - OK':13}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
@@ -536,9 +548,6 @@ if hits_file and getnet_file:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
                 elif st_val == 'AUTO/CV INVERTIDO':
                     for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'AUTO/CV TROCADOS':
-                    for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G', 'Valor_H', 'Valor_G']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
                 elif st_val == 'PAGAMENTO DUPLICADO':
                     for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
@@ -632,9 +641,6 @@ if hits_file and getnet_file:
                     elif st_v == 'AUTO/CV INVERTIDO':
                         for c_n in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
                             if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
-                    elif st_v == 'AUTO/CV TROCADOS':
-                        for c_n in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G', 'Valor_H', 'Valor_G']:
-                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
                     elif st_v == 'PAGAMENTO DUPLICADO':
                         for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                             if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
@@ -704,3 +710,10 @@ if hits_file and getnet_file:
 
 else:
     st.info("💡 Dica: Arraste os arquivos acima para começar.")
+
+# --- FOOTER ---
+st.markdown("""
+    <div style='text-align: center; margin-top: 50px; padding: 20px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;'>
+        Desenvolvido por <b>Junior Dantas</b>
+    </div>
+""", unsafe_allow_html=True)
