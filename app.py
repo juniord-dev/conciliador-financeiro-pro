@@ -298,7 +298,7 @@ if hits_file and getnet_file:
 
             # LÓGICA DE PAREAMENTO SECUNDÁRIO EM 2 FASES (Proteção contra engolir lançamentos de mod. diferentes)
             def parear_sobras(exigir_modalidade):
-                nonlocal id_count
+                global id_count
                 for idx_h in df_res[mask_fh].index:
                     if df_res.loc[idx_h, '_merge'] == 'both': continue
                     
