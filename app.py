@@ -53,7 +53,6 @@ def limpar_cv(valor):
     return v
 
 def levenshtein(s1, s2):
-    """Calcula a distância de edições entre duas strings (Tolerância de digitação)"""
     if len(s1) < len(s2): return levenshtein(s2, s1)
     if len(s2) == 0: return len(s1)
     previous_row = range(len(s2) + 1)
@@ -132,7 +131,6 @@ if hits_file and getnet_file:
             if 'STATUS DA TRANSAÇÃO' in df_g_cartoes.columns:
                 df_g_cartoes = df_g_cartoes[df_g_cartoes['STATUS DA TRANSAÇÃO'].str.contains('Aprovada', case=False, na=False)]
             
-            # Busca coluna de parcelas para implementar a regra de sufixo
             col_parcelas = next((c for c in df_g_cartoes.columns if 'PARCELA' in str(c)), None)
             
             df_g_cartoes = df_g_cartoes.rename(columns={
@@ -141,7 +139,6 @@ if hits_file and getnet_file:
             })
             df_g_cartoes = df_g_cartoes[~df_g_cartoes['Mod_G'].astype(str).str.upper().str.contains('GET ECO', na=False)]
             
-            # Aplica sufixo de parcelas se houver
             def formatar_mod_getnet(row):
                 base_mod = f"{row['Band_G']} {row['Mod_G']}"
                 if col_parcelas and pd.notna(row[col_parcelas]):
@@ -180,7 +177,6 @@ if hits_file and getnet_file:
             
             df_hits['Usuário'] = df_hits['Usuário'].apply(formatar_usuario)
 
-            # EXTRAÇÃO DO DINHEIRO
             mask_dinheiro = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('DINHEIRO', na=False)
             df_dinheiro = df_hits[mask_dinheiro].copy()
             
@@ -193,7 +189,6 @@ if hits_file and getnet_file:
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
 
-            # CRIAÇÃO DA TABELA COMPARATIVA MACRO POR BANDEIRA / MODALIDADE
             df_h_macro = df_hits.copy()
             df_h_macro['Categoria'] = df_h_macro['Modalidade_H'].apply(obter_categoria_macro)
             res_h = df_h_macro.groupby('Categoria')['Valor_H'].apply(lambda x: garantir_numero(x).sum()).reset_index()
@@ -216,7 +211,6 @@ if hits_file and getnet_file:
             df_macro_resumo = pd.merge(res_h, res_g, on='Categoria', how='outer').fillna(0)
             df_macro_resumo['Diferença'] = df_macro_resumo['Total HITS'] - df_macro_resumo['Total Getnet']
 
-            # Separar o PIX MANUAL
             mask_manual = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('MANUAL', na=False)
             df_hits_manual = df_hits[mask_manual].copy()
             df_hits = df_hits[~mask_manual].copy()
@@ -244,7 +238,6 @@ if hits_file and getnet_file:
             df_h_valid['Card_Match'] = df_h_valid.groupby('Auto_H').cumcount()
             df_g_valid['Card_Match'] = df_g_valid.groupby('Auto_G').cumcount()
 
-            # Merge exato inicial pelos Autos
             df_m_cart_valid = pd.merge(
                 df_h_valid, 
                 df_g_valid[['Auto_G', 'CV_G', 'Valor_G', 'Data_G', 'Modalidade_G', 'Card_Match']], 
@@ -285,7 +278,7 @@ if hits_file and getnet_file:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
 
-            # --- 4. TRATAMENTO, PAREAMENTO SECUNDÁRIO E STATUS ---
+            # --- 4. PAREAMENTO SECUNDÁRIO E TRATAMENTO ---
             df_res = pd.concat([df_m_cart, df_m_pix], ignore_index=True)
             df_res['ID'] = '' 
             
@@ -297,9 +290,60 @@ if hits_file and getnet_file:
             df_res['Auto_H'] = df_res['Auto_H'].fillna('').astype(str).str.strip().str.upper()
             df_res['Auto_G'] = df_res['Auto_G'].fillna('').astype(str).str.strip().str.upper()
 
+            mask_fh = (df_res['_merge'] == 'left_only')
+            mask_fg = (df_res['_merge'] == 'right_only')
+            
+            used_g = set()
+            id_count = 1
+
+            # LÓGICA DE PAREAMENTO SECUNDÁRIO EM 2 FASES (Proteção contra engolir lançamentos de mod. diferentes)
+            def parear_sobras(exigir_modalidade):
+                nonlocal id_count
+                for idx_h in df_res[mask_fh].index:
+                    if df_res.loc[idx_h, '_merge'] == 'both': continue
+                    
+                    v_h = pd.to_numeric(df_res.loc[idx_h, 'Valor_H'], errors='coerce') or 0
+                    dt_h = str(df_res.loc[idx_h, 'Data_H']).strip()
+                    cv_h = str(df_res.loc[idx_h, 'CV_H']).strip()
+                    mod_h_macro = obter_categoria_macro(df_res.loc[idx_h, 'Modalidade_H'])
+                    
+                    for idx_g in df_res[mask_fg].index:
+                        if idx_g in used_g: continue
+                        
+                        v_g = pd.to_numeric(df_res.loc[idx_g, 'Valor_G'], errors='coerce') or 0
+                        
+                        if np.isclose(v_h, v_g, atol=0.001):
+                            mod_g_macro = obter_categoria_macro(df_res.loc[idx_g, 'Modalidade_G'])
+                            
+                            if exigir_modalidade and (mod_h_macro != mod_g_macro):
+                                continue
+                                
+                            dt_g = str(df_res.loc[idx_g, 'Data_G']).strip()
+                            cv_g = str(df_res.loc[idx_g, 'CV_G']).strip()
+                            
+                            if (dt_h == dt_g) or (cv_h == cv_g and cv_h != ''):
+                                df_res.loc[idx_h, 'Valor_G'] = df_res.loc[idx_g, 'Valor_G']
+                                df_res.loc[idx_h, 'Data_G'] = df_res.loc[idx_g, 'Data_G']
+                                df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
+                                df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
+                                df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
+                                df_res.loc[idx_h, '_merge'] = 'both'
+                                
+                                used_g.add(idx_g)
+                                break
+
+            # Fase 1: Busca casamentos exatos de modalidade primeiro
+            parear_sobras(exigir_modalidade=True)
+            # Fase 2: Busca resgates para apontar erros de modalidade puros
+            parear_sobras(exigir_modalidade=False)
+
+            # Limpa as sobras da Getnet que foram unificadas limpas
+            df_res = df_res.drop(list(used_g))
+
             df_res['Status'] = 'Falta no HITS'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
-            
+
+            # Injeta o PIX Manual após os pareamentos automáticos
             if not df_hits_manual.empty:
                 df_hits_manual['ID'] = ''
                 df_hits_manual['Status'] = 'A VERIFICAR'
@@ -307,42 +351,7 @@ if hits_file and getnet_file:
                 df_hits_manual['Data_H'] = pd.to_datetime(df_hits_manual['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
                 df_res = pd.concat([df_res, df_hits_manual], ignore_index=True)
 
-            id_count = 1
-
-            # --- PAREAMENTO SECUNDÁRIO (Para pegar os erros de digitação de Auto) ---
-            mask_fh2 = (df_res['Status'] == 'Falta na Getnet') & (df_res['ID'] == '')
-            mask_fg2 = (df_res['Status'] == 'Falta no HITS') & (df_res['ID'] == '')
-            
-            for idx_h in df_res[mask_fh2].index:
-                for idx_g in df_res[mask_fg2].index:
-                    if df_res.loc[idx_g, 'ID'] != '':
-                        continue
-                    v_h = pd.to_numeric(df_res.loc[idx_h, 'Valor_H'], errors='coerce') or 0
-                    v_g = pd.to_numeric(df_res.loc[idx_g, 'Valor_G'], errors='coerce') or 0
-                    
-                    # Checagem primária de valor idêntico e data idêntica (para habilitar o match de sobras)
-                    if np.isclose(v_h, v_g, atol=0.001):
-                        dt_h = str(df_res.loc[idx_h, 'Data_H']).strip()
-                        dt_g = str(df_res.loc[idx_g, 'Data_G']).strip()
-                        cv_h = str(df_res.loc[idx_h, 'CV_H']).strip()
-                        cv_g = str(df_res.loc[idx_g, 'CV_G']).strip()
-                        
-                        if (dt_h == dt_g) or (cv_h == cv_g and cv_h != ''):
-                            df_res.loc[idx_h, 'ID'] = df_res.loc[idx_g, 'ID'] = f'#{id_count}'
-                            
-                            # Transfere os dados da Getnet para a linha do HITS para unificar visualmente
-                            df_res.loc[idx_h, 'Valor_G'] = df_res.loc[idx_g, 'Valor_G']
-                            df_res.loc[idx_h, 'Data_G'] = df_res.loc[idx_g, 'Data_G']
-                            df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
-                            df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
-                            df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
-                            df_res.loc[idx_h, '_merge'] = 'both'
-                            
-                            df_res = df_res.drop(idx_g) # Remove a sobra que foi unificada
-                            id_count += 1
-                            break
-
-            # --- PROCESSAMENTO DEFINITIVO DE STATUS (REGRAS CLARAS DE PRIORIDADE E FUZZY MATCH) ---
+            # --- PROCESSAMENTO DEFINITIVO DE STATUS (REGRAS DE PRIORIDADE) ---
             for idx in df_res[df_res['_merge'] == 'both'].index:
                 v_h = pd.to_numeric(df_res.loc[idx, 'Valor_H'], errors='coerce') or 0
                 v_g = pd.to_numeric(df_res.loc[idx, 'Valor_G'], errors='coerce') or 0
@@ -353,20 +362,17 @@ if hits_file and getnet_file:
                 dt_h = str(df_res.loc[idx, 'Data_H']).strip()
                 dt_g = str(df_res.loc[idx, 'Data_G']).strip()
                 
-                # Respeita a modalidade real (sem atalhos perigosos)
                 mod_h_macro = obter_categoria_macro(df_res.loc[idx, 'Modalidade_H'])
                 mod_g_macro = obter_categoria_macro(df_res.loc[idx, 'Modalidade_G'])
-                
                 is_pix = 'PIX' in mod_h_macro or 'PIX' in mod_g_macro
 
-                # Validação Fuzzy (Tolerância Matemática)
                 dist_auto = levenshtein(auto_h, auto_g)
                 dist_cv = levenshtein(cv_h, cv_g)
                 
                 auto_match = (auto_h == auto_g) or (dist_auto <= 2 and auto_h != '' and auto_g != '')
                 cv_match = (cv_h == cv_g) or (dist_cv <= 2 and cv_h != '' and cv_g != '')
 
-                # PRIORIDADE DE JULGAMENTO
+                # Checagem Rigorosa de Prioridades
                 if not np.isclose(v_h, v_g, atol=0.001):
                     df_res.loc[idx, 'Status'] = 'VALOR INCORRETO'
                 elif mod_h_macro != mod_g_macro:
@@ -374,7 +380,7 @@ if hits_file and getnet_file:
                 elif dt_h != dt_g:
                     df_res.loc[idx, 'Status'] = 'DATA INCORRETA'
                 elif is_pix:
-                    df_res.loc[idx, 'Status'] = 'Batido - OK' # Pix isento de regras de Auto/CV
+                    df_res.loc[idx, 'Status'] = 'Batido - OK'
                 else:
                     if auto_match and cv_match:
                         df_res.loc[idx, 'Status'] = 'Batido - OK'
@@ -387,7 +393,7 @@ if hits_file and getnet_file:
                     elif not cv_match:
                         df_res.loc[idx, 'Status'] = 'CV INCORRETO'
 
-            # --- DETECTOR DE AUTO/CV TROCADOS ENTRE LANÇAMENTOS DIFERENTES ---
+            # --- DETECTOR DE AUTO/CV TROCADOS ---
             indices_both = df_res[df_res['_merge'] == 'both'].index.tolist()
             used_trocados = set()
             
@@ -413,7 +419,7 @@ if hits_file and getnet_file:
                         used_trocados.add(idx_j)
                         break
 
-            # --- DETECTOR MATRICIAL DE PAGAMENTOS DUPLICADOS ---
+            # --- DETECTOR DE PAGAMENTOS DUPLICADOS ---
             autos_com_getnet = set(df_res[df_res['_merge'] == 'both']['Auto_H'].astype(str).str.strip().str.upper())
             for p in invalid_autos: autos_com_getnet.discard(p)
 
@@ -453,23 +459,24 @@ if hits_file and getnet_file:
                     df_res.loc[idx, 'Status'] = 'AUTO/CV INVERTIDO'
 
             # --- ATRIBUIÇÃO FINAL DE IDs E ORDENAÇÃO ---
-            mask_erros_geral = df_res['Status'].isin(['CV INCORRETO', 'ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO', 'AUTO/CV TROCADOS', 'PAGAMENTO DUPLICADO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
+            erros_isolamento = ['CV INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO', 'AUTO/CV TROCADOS']
+            
+            mask_erros_geral = df_res['Status'].isin(erros_isolamento + ['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
             for idx in df_res[mask_erros_geral].index:
                 if df_res.loc[idx, 'ID'] == '':
                     df_res.loc[idx, 'ID'] = f'#{id_count}'
                     id_count += 1
 
-            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'AUTO/CV TROCADOS':4, 'AUTO/CV INVERTIDO':5, 'AUTO/CV INCORRETOS':6, 'AUTO/CV AUSENTES':7, 'AUTO INCORRETO':8, 'CV INCORRETO':9, 'ERRO DE MODALIDADE':10, 'DATA INCORRETA':11, 'VALOR INCORRETO':12, 'A VERIFICAR':13, 'Batido - OK':14}
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'ERRO DE MODALIDADE':4, 'DATA INCORRETA':5, 'VALOR INCORRETO':6, 'A VERIFICAR':7, 'AUTO/CV TROCADOS':8, 'AUTO/CV INVERTIDO':9, 'AUTO/CV INCORRETOS':10, 'AUTO/CV AUSENTES':11, 'AUTO INCORRETO':12, 'CV INCORRETO':13, 'Batido - OK':14}
             df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
             # --- RASTREIO DE IDs PARA A ABA MACRO ---
             df_res['Categoria_Macro'] = df_res['Modalidade_H'].apply(obter_categoria_macro)
-            
             rastreio_ids = {}
             for idx in df_res.index:
                 cat = df_res.loc[idx, 'Categoria_Macro']
-                if df_res.loc[idx, 'Status'] != 'Batido - OK':
+                if df_res.loc[idx, 'Status'] not in ['Batido - OK', 'A VERIFICAR'] and df_res.loc[idx, 'Status'] not in erros_isolamento:
                     id_val = str(df_res.loc[idx, 'ID']).strip()
                     if id_val:
                         if cat not in rastreio_ids:
@@ -483,6 +490,10 @@ if hits_file and getnet_file:
             cols_f = ['ID', 'Status', 'Pagamento', 'Conta', 'Valor_H', 'Valor_G', 'Auto_H', 'Auto_G', 'CV_H', 'CV_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G', 'Usuário']
             df_res = df_res[[c for c in cols_f if c in df_res.columns]].fillna('')
             for c in df_res.columns: df_res[c] = df_res[c].apply(lambda x: '' if str(x).strip().lower() in ['none', 'nan', 'nat', '<na>'] else x)
+
+            # --- DIVISÃO DOS DATAFRAMES (MAIN vs ERROS DE DIGITAÇÃO) ---
+            df_main = df_res[~df_res['Status'].isin(erros_isolamento)].copy()
+            df_erros_dig = df_res[df_res['Status'].isin(erros_isolamento)].copy()
 
             # --- PINTURA CIRÚRGICA (WEB INTERFACE) ---
             def cor_tela(row):
@@ -499,7 +510,6 @@ if hits_file and getnet_file:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
                 elif st_val == 'A VERIFICAR':
                     if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
-                
                 elif st_val == 'CV INCORRETO':
                     if 'CV_H' in cols and row['CV_H'] != '': est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
                     if 'CV_G' in cols and row['CV_G'] != '': est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
@@ -537,30 +547,28 @@ if hits_file and getnet_file:
                 return est
 
             # --- DASHBOARD ---
-            st.success("✅ Conciliação Realizada!")
+            st.success("✅ Conciliação Realizada com Sucesso!")
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Total", len(df_res))
-            c2.metric("OK", len(df_res[df_res['Status'] == 'Batido - OK']))
+            c1.metric("Total de Linhas", len(df_res))
+            c2.metric("Batido - OK", len(df_res[df_res['Status'] == 'Batido - OK']))
             c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
-            c4.metric("Inconsistências", len(df_res[~df_res['Status'].isin(['Batido - OK', 'A VERIFICAR']) & ~df_res['Status'].str.contains('Falta')]))
-            c5.metric("A Verificar", len(df_res[df_res['Status'] == 'A VERIFICAR']))
+            c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
+            c5.metric("Erros de Digitação", len(df_erros_dig))
 
-            st.dataframe(df_res.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
+            st.markdown("### ⚠️ Divergências Principais (Prioridade Alta)")
+            st.dataframe(df_main.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
             
+            if not df_erros_dig.empty:
+                st.markdown("### ⌨️ Erros de Digitação Auto/CV (Prioridade Baixa)")
+                st.dataframe(df_erros_dig.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
+
             st.markdown("### 📊 Volume Macro por Bandeira/Modalidade")
             st.dataframe(df_macro_resumo.style.format({'Total HITS': formata_moeda, 'Total Getnet': formata_moeda, 'Diferença': formata_moeda}), use_container_width=True)
 
             # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                
-                # PLANILHA 1: RESULTADO PRINCIPAL
-                df_res.to_excel(writer, index=False, sheet_name='Resultado')
-                ws = writer.sheets['Resultado']
-                
+            def format_excel_sheet(ws, df_data, idx_map):
                 ws.freeze_panes = 'A2'
                 ws.auto_filter.ref = ws.dimensions
-                
                 for column in ws.columns:
                     max_length = 0
                     col_letter = column[0].column_letter
@@ -576,73 +584,80 @@ if hits_file and getnet_file:
                 for c in range(1, ws.max_column + 1):
                     ws.cell(1, c).alignment = center_align
 
-                idx = {n: i for i, n in enumerate(df_res.columns, 1)}
-
                 for r in range(2, ws.max_row + 1):
-                    st_v = ws.cell(r, idx['Status']).value
-                    id_val = str(ws.cell(r, idx['ID']).value or '').strip()
+                    st_v = ws.cell(r, idx_map['Status']).value
+                    id_val = str(ws.cell(r, idx_map['ID']).value or '').strip()
                     
                     for c in range(1, ws.max_column + 1):
                         ws.cell(r, c).alignment = center_align
                     
                     for c_n in ['Valor_H', 'Valor_G']:
-                        if c_n in idx and ws.cell(r, idx[c_n]).value != '':
-                            ws.cell(r, idx[c_n]).number_format = '"R$" #,##0.00'
+                        if c_n in idx_map and ws.cell(r, idx_map[c_n]).value != '':
+                            ws.cell(r, idx_map[c_n]).number_format = '"R$" #,##0.00'
                     
-                    # Pintura Excel Espelhada com as Novas Regras
                     if st_v == 'Batido - OK':
                         for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
                     elif st_v == 'Falta na Getnet':
                         for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_red
                     elif st_v == 'Falta no HITS':
                         for c_n in ['Valor_G', 'CV_G', 'Auto_G', 'Data_G', 'Modalidade_G']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_red
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_red
                     elif st_v == 'A VERIFICAR':
-                        ws.cell(r, idx['Status']).fill = f_blu
-                    
+                        ws.cell(r, idx_map['Status']).fill = f_blu
                     elif st_v == 'CV INCORRETO':
-                        if 'CV_H' in idx and ws.cell(r, idx['CV_H']).value != '': ws.cell(r, idx['CV_H']).fill = f_org
-                        if 'CV_G' in idx and ws.cell(r, idx['CV_G']).value != '': ws.cell(r, idx['CV_G']).fill = f_org
+                        if 'CV_H' in idx_map and ws.cell(r, idx_map['CV_H']).value != '': ws.cell(r, idx_map['CV_H']).fill = f_org
+                        if 'CV_G' in idx_map and ws.cell(r, idx_map['CV_G']).value != '': ws.cell(r, idx_map['CV_G']).fill = f_org
                     elif st_v == 'ERRO DE MODALIDADE':
-                        if 'Modalidade_H' in idx and ws.cell(r, idx['Modalidade_H']).value != '': ws.cell(r, idx['Modalidade_H']).fill = f_org
-                        if 'Modalidade_G' in idx and ws.cell(r, idx['Modalidade_G']).value != '': ws.cell(r, idx['Modalidade_G']).fill = f_org
+                        if 'Modalidade_H' in idx_map and ws.cell(r, idx_map['Modalidade_H']).value != '': ws.cell(r, idx_map['Modalidade_H']).fill = f_org
+                        if 'Modalidade_G' in idx_map and ws.cell(r, idx_map['Modalidade_G']).value != '': ws.cell(r, idx_map['Modalidade_G']).fill = f_org
                     elif st_v == 'DATA INCORRETA':
-                        if 'Data_H' in idx and ws.cell(r, idx['Data_H']).value != '': ws.cell(r, idx['Data_H']).fill = f_org
-                        if 'Data_G' in idx and ws.cell(r, idx['Data_G']).value != '': ws.cell(r, idx['Data_G']).fill = f_org
+                        if 'Data_H' in idx_map and ws.cell(r, idx_map['Data_H']).value != '': ws.cell(r, idx_map['Data_H']).fill = f_org
+                        if 'Data_G' in idx_map and ws.cell(r, idx_map['Data_G']).value != '': ws.cell(r, idx_map['Data_G']).fill = f_org
                     elif st_v == 'VALOR INCORRETO':
-                        if 'Valor_H' in idx and ws.cell(r, idx['Valor_H']).value != '': ws.cell(r, idx['Valor_H']).fill = f_org
-                        if 'Valor_G' in idx and ws.cell(r, idx['Valor_G']).value != '': ws.cell(r, idx['Valor_G']).fill = f_org
+                        if 'Valor_H' in idx_map and ws.cell(r, idx_map['Valor_H']).value != '': ws.cell(r, idx_map['Valor_H']).fill = f_org
+                        if 'Valor_G' in idx_map and ws.cell(r, idx_map['Valor_G']).value != '': ws.cell(r, idx_map['Valor_G']).fill = f_org
                     elif st_v == 'AUTO INCORRETO':
-                        if 'Auto_H' in idx and ws.cell(r, idx['Auto_H']).value != '': ws.cell(r, idx['Auto_H']).fill = f_org
-                        if 'Auto_G' in idx and ws.cell(r, idx['Auto_G']).value != '': ws.cell(r, idx['Auto_G']).fill = f_org
+                        if 'Auto_H' in idx_map and ws.cell(r, idx_map['Auto_H']).value != '': ws.cell(r, idx_map['Auto_H']).fill = f_org
+                        if 'Auto_G' in idx_map and ws.cell(r, idx_map['Auto_G']).value != '': ws.cell(r, idx_map['Auto_G']).fill = f_org
                     elif st_v == 'AUTO/CV INCORRETOS':
                         for c_n in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_org
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
                     elif st_v == 'AUTO/CV AUSENTES':
                         for c_n in ['Auto_H', 'CV_H']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_org
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
                     elif st_v == 'AUTO/CV INVERTIDO':
                         for c_n in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_org
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
                     elif st_v == 'AUTO/CV TROCADOS':
                         for c_n in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G', 'Valor_H', 'Valor_G']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_org
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
                     elif st_v == 'PAGAMENTO DUPLICADO':
                         for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
-                            if c_n in idx: ws.cell(r, idx[c_n]).fill = f_org
+                            if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_org
 
-                    if id_val != '' and 'ID' in idx:
-                        ws.cell(r, idx['ID']).fill = f_ylw
+                    if id_val != '' and 'ID' in idx_map:
+                        ws.cell(r, idx_map['ID']).fill = f_ylw
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # PLANILHA 1: MAIN
+                df_main.to_excel(writer, index=False, sheet_name='Divergências Principais')
+                format_excel_sheet(writer.sheets['Divergências Principais'], df_main, {n: i for i, n in enumerate(df_main.columns, 1)})
                 
-                # PLANILHA 2: RESUMO DINHEIRO INTELIGENTE
+                # PLANILHA 2: ERROS DE DIGITAÇÃO
+                if not df_erros_dig.empty:
+                    df_erros_dig.to_excel(writer, index=False, sheet_name='Erros de Digitação')
+                    format_excel_sheet(writer.sheets['Erros de Digitação'], df_erros_dig, {n: i for i, n in enumerate(df_erros_dig.columns, 1)})
+
+                # PLANILHA 3: RESUMO DINHEIRO INTELIGENTE
                 if not df_dinheiro_resumo.empty:
-                    df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=0)
+                    df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=0)
                     df_dinheiro_totais = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
                     df_dinheiro_totais.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
-                    df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro', startcol=4)
+                    df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=4)
                     
-                    ws_din = writer.sheets['Dinheiro']
+                    ws_din = writer.sheets['Dinheiro Recebido']
                     ws_din.freeze_panes = 'A2'
                     
                     for column in ws_din.columns:
@@ -657,11 +672,11 @@ if hits_file and getnet_file:
                     for r in range(1, ws_din.max_row + 1):
                         for c in range(1, ws_din.max_column + 1):
                             cell = ws_din.cell(r, c)
-                            cell.alignment = center_align
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
                             if r > 1 and c in [3, 6] and cell.value != '':
                                 cell.number_format = '"R$" #,##0.00'
 
-                # PLANILHA 3: RESUMO FINANCEIRO POR BANDEIRA
+                # PLANILHA 4: RESUMO FINANCEIRO POR BANDEIRA
                 if not df_macro_resumo.empty:
                     df_macro_resumo.to_excel(writer, index=False, sheet_name='Resumo por Bandeira')
                     ws_mac = writer.sheets['Resumo por Bandeira']
@@ -678,7 +693,7 @@ if hits_file and getnet_file:
                     for r in range(1, ws_mac.max_row + 1):
                         for c in range(1, ws_mac.max_column + 1):
                             cell = ws_mac.cell(r, c)
-                            cell.alignment = center_align
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
                             if r > 1 and c in [2, 3, 4]:
                                 cell.number_format = '"R$" #,##0.00'
 
