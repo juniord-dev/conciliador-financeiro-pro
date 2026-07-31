@@ -110,7 +110,7 @@ def obter_categoria_macro(mod_string):
 # --- INTERFACE E LÓGICA PRINCIPAL ---
 
 st.markdown("<h1 style='text-align: center;'>Conciliação Financeira HITS x Getnet</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; margin-bottom: 40px;'>Arraste seus relatórios abaixo para iniciar o o inteligente.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; margin-bottom: 40px;'>Arraste seus relatórios abaixo para iniciar a conciliação.</p>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1: hits_file = st.file_uploader("🏨 Relatório HITS", type=["xlsx"], key="hits")
@@ -118,7 +118,7 @@ with col2: getnet_file = st.file_uploader("💳 Relatório Getnet", type=["xlsx"
 
 if hits_file and getnet_file:
     if st.button("ANALISAR E CONCILIAR AGORA"):
-        with st.spinner("Processando Inteligência Financeira..."):
+        with st.spinner("Processando Conciliação Financeira..."):
             
             # --- 1. GETNET ---
             df_g_cartoes = ler_excel_inteligente(getnet_file, 'BANDEIRA', aba=0)
@@ -709,7 +709,7 @@ if hits_file and getnet_file:
             st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 else:
-    st.info("💡 Dica: Arraste os arquivos acima para começar.")
+    st.info("💡 Dica: Arraste os arquivos acima para começar. Relatório da GetNet em excel, detalhado, e todas as modalidades.")
 
 # --- FOOTER ---
 st.markdown("""
