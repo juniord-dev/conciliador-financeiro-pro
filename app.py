@@ -189,7 +189,10 @@ if hits_file and getnet_file:
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
 
+            # CRIAÇÃO DA TABELA COMPARATIVA MACRO POR BANDEIRA / MODALIDADE
             df_h_macro = df_hits.copy()
+            # Impede que PIX CNPJ e MANUAL entrem no somatório financeiro
+            df_h_macro = df_h_macro[~df_h_macro['Modalidade_H'].astype(str).str.upper().str.contains('CNPJ|MANUAL', regex=True)]
             df_h_macro['Categoria'] = df_h_macro['Modalidade_H'].apply(obter_categoria_macro)
             res_h = df_h_macro.groupby('Categoria')['Valor_H'].apply(lambda x: garantir_numero(x).sum()).reset_index()
             res_h.rename(columns={'Valor_H': 'Total HITS'}, inplace=True)
