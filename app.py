@@ -346,13 +346,42 @@ if hits_file and getnet_file:
             df_res['Status'] = 'Falta no HITS'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
 
-            # Injeta o PIX Manual após os pareamentos automáticos
+           # Injeta o PIX Manual após os pareamentos automáticos
             if not df_hits_manual.empty:
                 df_hits_manual['ID'] = ''
                 df_hits_manual['Status'] = 'A VERIFICAR'
                 df_hits_manual['_merge'] = 'left_only'
                 df_hits_manual['Data_H'] = pd.to_datetime(df_hits_manual['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
                 df_res = pd.concat([df_res, df_hits_manual], ignore_index=True)
+
+            # --- RESGATE: CASAR PIX QR CODE (Getnet) COM PIX MANUAL/TRANSFERÊNCIA (HITS) ---
+            mask_manual_h = (df_res['Status'] == 'A VERIFICAR')
+            mask_pix_g = (df_res['Status'] == 'Falta no HITS') & (df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX')
+
+            used_manual = set()
+            for idx_h in df_res[mask_manual_h].index:
+                v_h = pd.to_numeric(df_res.loc[idx_h, 'Valor_H'], errors='coerce') or 0
+                dt_h = str(df_res.loc[idx_h, 'Data_H']).strip()
+                
+                for idx_g in df_res[mask_pix_g].index:
+                    if idx_g in used_manual: continue
+                    
+                    v_g = pd.to_numeric(df_res.loc[idx_g, 'Valor_G'], errors='coerce') or 0
+                    dt_g = str(df_res.loc[idx_g, 'Data_G']).strip()
+                    
+                    if np.isclose(v_h, v_g, atol=0.001) and dt_h == dt_g:
+                        df_res.loc[idx_h, 'Valor_G'] = df_res.loc[idx_g, 'Valor_G']
+                        df_res.loc[idx_h, 'Data_G'] = df_res.loc[idx_g, 'Data_G']
+                        df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
+                        df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
+                        df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
+                        df_res.loc[idx_h, '_merge'] = 'both'
+                        
+                        used_manual.add(idx_g)
+                        break
+
+            if used_manual:
+                df_res = df_res.drop(list(used_manual))
 
             # --- PROCESSAMENTO DEFINITIVO DE STATUS (REGRAS DE PRIORIDADE) ---
             for idx in df_res[df_res['_merge'] == 'both'].index:
@@ -368,6 +397,9 @@ if hits_file and getnet_file:
                 mod_h_macro = obter_categoria_macro(df_res.loc[idx, 'Modalidade_H'])
                 mod_g_macro = obter_categoria_macro(df_res.loc[idx, 'Modalidade_G'])
                 is_pix = 'PIX' in mod_h_macro or 'PIX' in mod_g_macro
+                
+                # Identifica se o funcionário lançou como Manual/Transferência ao invés de QR CODE
+                is_pix_manual_errado = ('MANUAL' in str(df_res.loc[idx, 'Modalidade_H']).upper() or 'TRANSFERENCIA' in str(df_res.loc[idx, 'Modalidade_H']).upper()) and ('GETNET PIX' in str(df_res.loc[idx, 'Modalidade_G']).upper())
 
                 dist_auto = levenshtein(auto_h, auto_g)
                 dist_cv = levenshtein(cv_h, cv_g)
@@ -378,6 +410,8 @@ if hits_file and getnet_file:
                 # Checagem Rigorosa de Prioridades
                 if not np.isclose(v_h, v_g, atol=0.001):
                     df_res.loc[idx, 'Status'] = 'VALOR INCORRETO'
+                elif is_pix_manual_errado:
+                    df_res.loc[idx, 'Status'] = 'ERRO DE MODALIDADE'
                 elif mod_h_macro != mod_g_macro:
                     df_res.loc[idx, 'Status'] = 'ERRO DE MODALIDADE'
                 elif dt_h != dt_g:
