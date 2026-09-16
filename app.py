@@ -129,7 +129,7 @@ if hits_file and getnet_file:
                 st.stop()
 
             if 'STATUS DA TRANSAÇÃO' in df_g_cartoes.columns:
-                df_g_cartoes = df_g_cartoes[df_g_cartoes['STATUS DA TRANSAÇÃO'].str.contains('Aprovada', case=False, na=False)]
+                df_g_cartoes = df_g_cartoes[df_g_cartoes['STATUS DA TRANSAÇÃO'].astype(str).str.contains('Aprovada|Autorizada', case=False, regex=True, na=False)]
             
             col_parcelas = next((c for c in df_g_cartoes.columns if 'PARCELA' in str(c)), None)
             
