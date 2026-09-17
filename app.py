@@ -611,6 +611,21 @@ if hits_file and getnet_file:
             st.markdown("### 📊 Volume Macro por Bandeira/Modalidade")
             st.dataframe(df_macro_resumo.style.format({'Total HITS': formata_moeda, 'Total Getnet': formata_moeda, 'Diferença': formata_moeda}), use_container_width=True)
 
+            # --- EXIBIÇÃO: DINHEIRO FÍSICO ---
+            if not df_dinheiro_resumo.empty:
+                st.markdown("### 💵 Resumo de Recebimentos em Dinheiro")
+                col_din1, col_din2 = st.columns([2, 1])
+                
+                with col_din1:
+                    st.markdown("**Detalhado por Usuário**")
+                    st.dataframe(df_dinheiro_resumo.style.format({'Total Recebido': formata_moeda}), use_container_width=True)
+                    
+                with col_din2:
+                    st.markdown("**Total Consolidado por Dia**")
+                    df_dinheiro_totais_tela = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
+                    df_dinheiro_totais_tela.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
+                    st.dataframe(df_dinheiro_totais_tela.style.format({'Total do Dia': formata_moeda}), use_container_width=True)
+                    
             # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
             def format_excel_sheet(ws, df_data, idx_map):
                 ws.freeze_panes = 'A2'
