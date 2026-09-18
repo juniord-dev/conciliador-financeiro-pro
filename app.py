@@ -507,8 +507,13 @@ if hits_file and getnet_file:
                 if auto_h == cv_g and cv_h == auto_g and auto_h != '' and cv_h != '':
                     df_res.loc[idx, 'Status'] = 'AUTO/CV INVERTIDO'
 
+            # --- TRATAMENTO DE ESTORNOS (VALORES NEGATIVOS) ---
+            mask_estorno = (pd.to_numeric(df_res['Valor_H'], errors='coerce').fillna(0) < 0) | \
+                           (pd.to_numeric(df_res['Valor_G'], errors='coerce').fillna(0) < 0)
+            df_res.loc[mask_estorno, 'Status'] = 'ESTORNO'
+
             # --- ATRIBUIÇÃO FINAL DE IDs E ORDENAÇÃO ---
-            erros_isolamento = ['CV INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO']
+            erros_isolamento = ['CV INCORRETO', 'AUTO INCORRETO', 'AUTO/CV INCORRETOS', 'AUTO/CV AUSENTES', 'AUTO/CV INVERTIDO', 'AUTO/CV TROCADOS']
             
             mask_erros_geral = df_res['Status'].isin(erros_isolamento + ['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO', 'Falta na Getnet', 'Falta no HITS', 'A VERIFICAR'])
             for idx in df_res[mask_erros_geral].index:
@@ -516,8 +521,8 @@ if hits_file and getnet_file:
                     df_res.loc[idx, 'ID'] = f'#{id_count}'
                     id_count += 1
 
-            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'ERRO DE MODALIDADE':4, 'DATA INCORRETA':5, 'VALOR INCORRETO':6, 'A VERIFICAR':7, 'AUTO/CV INVERTIDO':8, 'AUTO/CV INCORRETOS':9, 'AUTO/CV AUSENTES':10, 'AUTO INCORRETO':11, 'CV INCORRETO':12, 'Batido - OK':13}
-            df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)
+            mapa_ordem = {'Falta na Getnet':1, 'Falta no HITS':2, 'PAGAMENTO DUPLICADO':3, 'ERRO DE MODALIDADE':4, 'DATA INCORRETA':5, 'VALOR INCORRETO':6, 'A VERIFICAR':7, 'AUTO/CV TROCADOS':8, 'AUTO/CV INVERTIDO':9, 'AUTO/CV INCORRETOS':10, 'AUTO/CV AUSENTES':11, 'AUTO INCORRETO':12, 'CV INCORRETO':13, 'ESTORNO':14, 'Batido - OK':15}
+            df_res['Ordem'] = df_res['Status'].map(mapa_ordem).fillna(99)   
             df_res = df_res.sort_values(by=['Ordem', 'ID', 'Data_H']).reset_index(drop=True)
             
             # --- RASTREIO DE IDs PARA A ABA MACRO ---
@@ -551,6 +556,7 @@ if hits_file and getnet_file:
                 st_val = row['Status']
                 
                 if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
+                elif st_val == 'ESTORNO': est = ['background-color: #f3e8ff'] * len(row)
                 elif st_val == 'Falta na Getnet':
                     for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                         if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
@@ -596,7 +602,7 @@ if hits_file and getnet_file:
             st.success("✅ Conciliação Realizada com Sucesso!")
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Total de Linhas", len(df_res))
-            c2.metric("Batido - OK", len(df_res[df_res['Status'] == 'Batido - OK']))
+            c2.metric("OK / Estornos", len(df_res[df_res['Status'].isin(['Batido - OK', 'ESTORNO'])]))
             c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
             c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
             c5.metric("Erros de Digitação", len(df_erros_dig))
@@ -640,6 +646,7 @@ if hits_file and getnet_file:
                     ws.column_dimensions[col_letter].width = min((max_length + 2), 35)
 
                 f_ok, f_red, f_org, f_blu, f_ylw = PatternFill("solid", "E6FFED"), PatternFill("solid", "FFEEF0"), PatternFill("solid", "FFB067"), PatternFill("solid", "D0EBFF"), PatternFill("solid", "FCE83A")
+                f_est = PatternFill("solid", "F3E8FF")
                 center_align = Alignment(horizontal="center", vertical="center")
                 
                 for c in range(1, ws.max_column + 1):
@@ -658,6 +665,8 @@ if hits_file and getnet_file:
                     
                     if st_v == 'Batido - OK':
                         for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_ok
+                    elif st_v == 'ESTORNO':
+                        for c in range(1, ws.max_column + 1): ws.cell(r, c).fill = f_est
                     elif st_v == 'Falta na Getnet':
                         for c_n in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
                             if c_n in idx_map: ws.cell(r, idx_map[c_n]).fill = f_red
