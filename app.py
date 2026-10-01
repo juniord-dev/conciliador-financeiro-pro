@@ -632,6 +632,10 @@ if hits_file and getnet_file:
                     df_dinheiro_totais_tela.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
                     st.dataframe(df_dinheiro_totais_tela.style.format({'Total do Dia': formata_moeda}), use_container_width=True)
                     
+                    if df_dinheiro_totais_tela['Data'].nunique() > 1:
+                        total_periodo = df_dinheiro_totais_tela['Total do Dia'].sum()
+                        st.info(f"💰 **TOTAL DO PERÍODO:** {formata_moeda(total_periodo)}")
+                    
             # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
             def format_excel_sheet(ws, df_data, idx_map):
                 ws.freeze_panes = 'A2'
@@ -722,6 +726,13 @@ if hits_file and getnet_file:
                     df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=0)
                     df_dinheiro_totais = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
                     df_dinheiro_totais.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
+                    
+                    # Condição: Adiciona uma linha em branco e o total geral se houver mais de 1 dia
+                    if df_dinheiro_totais['Data'].nunique() > 1:
+                        total_periodo = df_dinheiro_totais['Total do Dia'].sum()
+                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['', None] 
+                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['TOTAL DO PERÍODO:', total_periodo]
+
                     df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=4)
                     
                     ws_din = writer.sheets['Dinheiro Recebido']
@@ -740,7 +751,7 @@ if hits_file and getnet_file:
                         for c in range(1, ws_din.max_column + 1):
                             cell = ws_din.cell(r, c)
                             cell.alignment = Alignment(horizontal="center", vertical="center")
-                            if r > 1 and c in [3, 6] and cell.value != '':
+                            if r > 1 and c in [3, 6] and cell.value not in ['', None]:
                                 cell.number_format = '"R$" #,##0.00'
 
                 # PLANILHA 4: RESUMO FINANCEIRO POR BANDEIRA
