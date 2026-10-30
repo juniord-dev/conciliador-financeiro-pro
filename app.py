@@ -153,7 +153,7 @@ if hits_file and getnet_file:
             if not df_g_pix.empty:
                 df_g_pix.columns = df_g_pix.columns.astype(str).str.strip().str.upper()
                 col_st_pix = next((c for c in df_g_pix.columns if 'STATUS' in str(c)), None)
-                if col_st_pix: df_g_pix = df_g_pix[df_g_pix[col_st_pix].astype(str).str.contains('Paga', case=False, na=False)]
+                if col_st_pix: df_g_pix = df_g_pix[~df_g_pix[col_st_pix].astype(str).str.contains('Cancelad|Expirad|Recusad|Nega|Erro', case=False, na=False)]
                 col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
                 col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
                 df_g_pix = pd.DataFrame({
