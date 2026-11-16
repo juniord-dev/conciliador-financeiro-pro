@@ -715,7 +715,7 @@ if hits_file and getnet_file:
             lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
             lbl_todos = formatar_rotulo_aba("📑", "Visão Unificada", pend_total)
 
-           tab_cartao, tab_pix = st.tabs([lbl_cartao, lbl_pix])
+            tab_cartao, tab_pix = st.tabs([lbl_cartao, lbl_pix])
 
             with tab_cartao:
                 st.dataframe(
