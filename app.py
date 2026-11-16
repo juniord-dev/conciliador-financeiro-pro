@@ -41,7 +41,7 @@ st.markdown("""
         font-size: 15px !important;
     }
     
-    /* Estiliza o st.toggle com a mesma altura, fonte e glassmorphism das abas */
+/* Estiliza e alinha o st.toggle perfeitamente com os botões das abas */
     [data-testid="stCheckbox"] {
         background: rgba(148, 163, 184, 0.14) !important;
         backdrop-filter: blur(10px) !important;
@@ -49,7 +49,10 @@ st.markdown("""
         border: 1px solid rgba(148, 163, 184, 0.25) !important;
         border-radius: 12px !important;
         padding: 12px 20px !important;
+        height: 49px !important;
         min-height: 49px !important;
+        margin-top: 0px !important;
+        margin-bottom: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -67,6 +70,7 @@ st.markdown("""
         justify-content: center !important;
         gap: 10px !important;
         margin: 0 !important;
+        padding: 0 !important;
         cursor: pointer !important;
     }
     [data-testid="stCheckbox"] label p {
@@ -76,9 +80,18 @@ st.markdown("""
         margin: 0 !important;
         white-space: nowrap !important;
     }
-    /* Muda a cor da chavinha ativa de vermelho para verde #11CAA0 */
-    [data-testid="stCheckbox"] input:checked + div {
+    /* Pinta a chavinha de verde #11CAA0 quando ativada */
+    [data-testid="stCheckbox"] label:has(input:checked) > div:first-of-type {
         background-color: #11CAA0 !important;
+        border-color: #11CAA0 !important;
+    }
+    /* Destaca também o texto e a borda do card quando o filtro estiver ligado */
+    [data-testid="stCheckbox"]:has(input:checked) {
+        border-color: #11CAA0 !important;
+        background: rgba(17, 202, 160, 0.14) !important;
+    }
+    [data-testid="stCheckbox"]:has(input:checked) label p {
+        color: #11CAA0 !important;
     }
 
     /* Aba Inativa (Glassmorphism translúcido sem linha vermelha) */
