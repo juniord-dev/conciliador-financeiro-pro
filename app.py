@@ -74,9 +74,13 @@ st.markdown("""
         color: #002c51 !important;
         font-weight: 700 !important;
     }
+    [data-testid="stTabs"] [data-testid="stTabHighlight"],
     [data-testid="stTabs"] [data-baseweb="tab-highlight"],
-    [data-testid="stTabs"] [data-baseweb="tab-border"] {
+    [data-testid="stTabs"] [data-baseweb="tab-border"],
+    [data-testid="stTabs"] [role="tablist"] > div:last-child {
         display: none !important;
+        height: 0px !important;
+        background-color: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)
