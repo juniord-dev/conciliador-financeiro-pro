@@ -35,67 +35,6 @@ st.markdown("""
         border-bottom: 4px solid var(--primary);
     }
     [data-testid="stElementToolbar"] { display: none !important; }
-    /* Estilização moderna e blindada para as abas (st.tabs) */
-    [data-testid="stTabs"] [role="tablist"] {
-        gap: 10px !important;
-        background-color: rgba(148, 163, 184, 0.14) !important;
-        padding: 8px 10px !important;
-        border-radius: 16px !important;
-        width: fit-content !important;
-        border: 1px solid rgba(148, 163, 184, 0.25) !important;
-    }
-    [data-testid="stTabs"] [role="tab"] {
-        height: auto !important;
-        min-height: 42px !important;
-        background-color: transparent !important;
-        border-radius: 12px !important;
-        padding: 8px 22px !important;
-        margin: 0 !important;
-        border: none !important;
-        color: #94a3b8 !important;
-        transition: all 0.2s ease !important;
-    }
-    [data-testid="stTabs"] [role="tab"] p {
-        color: inherit !important;
-        font-weight: 600 !important;
-        font-size: 14px !important;
-        margin: 0 !important;
-    }
-    [data-testid="stTabs"] [role="tab"]:hover {
-        background-color: rgba(255, 255, 255, 0.08) !important;
-        color: #f8fafc !important;
-    }
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-        background-color: #11CAA0 !important;
-        color: #002c51 !important;
-        box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
-    }
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
-        color: #002c51 !important;
-        font-weight: 700 !important;
-    }
-   [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-        background-color: #11CAA0 !important;
-        color: #002c51 !important;
-        border-bottom: none !important;
-        box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
-    }
-
-    /* Elimina definitivamente a barra vermelha (2px) e a linha cinza (1px) do st.tabs */
-    [data-testid="stTabs"] [data-baseweb="tab-highlight"],
-    [data-testid="stTabs"] [data-baseweb="tab-border"],
-    [data-testid="stTabs"] div[style*="height: 2px"],
-    [data-testid="stTabs"] div[style*="height: 1px"] {
-        display: none !important;
-        height: 0px !important;
-        min-height: 0px !important;
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    [data-testid="stTabs"] [data-baseweb="tab-list"] {
-        border-bottom: none !important;
-        box-shadow: none !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -178,6 +117,9 @@ with col1: hits_file = st.file_uploader("🏨 Relatório HITS", type=["xlsx"], k
 with col2: getnet_file = st.file_uploader("💳 Relatório Getnet", type=["xlsx"], key="getnet")
 
 if hits_file and getnet_file:
+    # ---------------------------------------------------------
+    # BLOCO 1: PROCESSAMENTO E GERAÇÃO DO EXCEL (Só roda ao clicar no botão)
+    # ---------------------------------------------------------
     if st.button("ANALISAR E CONCILIAR AGORA"):
         with st.spinner("Processando Conciliação Financeira..."):
             
@@ -343,7 +285,6 @@ if hits_file and getnet_file:
             used_g = set()
             id_count = 1
 
-            # LÓGICA DE PAREAMENTO SECUNDÁRIO EM 2 FASES (Proteção contra engolir lançamentos de mod. diferentes)
             def parear_sobras(exigir_modalidade):
                 global id_count
                 for idx_h in df_res[mask_fh].index:
@@ -380,18 +321,14 @@ if hits_file and getnet_file:
                                 used_g.add(idx_g)
                                 break
 
-            # Fase 1: Busca casamentos exatos de modalidade primeiro
             parear_sobras(exigir_modalidade=True)
-            # Fase 2: Busca resgates para apontar erros de modalidade puros
             parear_sobras(exigir_modalidade=False)
 
-            # Limpa as sobras da Getnet que foram unificadas limpas
             df_res = df_res.drop(list(used_g))
 
             df_res['Status'] = 'Falta no HITS'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
 
-            # Injeta o PIX Manual após os pareamentos automáticos
             if not df_hits_manual.empty:
                 df_hits_manual['ID'] = ''
                 df_hits_manual['Status'] = 'A VERIFICAR'
@@ -430,9 +367,7 @@ if hits_file and getnet_file:
             if used_manual:
                 df_res = df_res.drop(list(used_manual))
 
-            # --- FILTRO PÓS-PAREAMENTO: DESCARTA QR CODES CRIADOS QUE NÃO FORAM PAGOS (EXPIRADOS) ---
-            # Na Getnet, muitos PIX pagos aparecem como 'Qr Code Criado' (e esses já casaram acima).
-            # Os que sobraram sem correspondência no HITS com status 'QR CODE CRIADO' são QR Codes expirados.
+            # --- FILTRO PÓS-PAREAMENTO: DESCARTA QR CODES CRIADOS NÃO PAGOS (EXPIRADOS) ---
             mask_pix_nao_pago = (
                 (df_res['Status'] == 'Falta no HITS') &
                 (df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX') &
@@ -451,7 +386,6 @@ if hits_file and getnet_file:
             if not df_g_cartoes.empty:
                 g_list.append(df_g_cartoes[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
             
-            # Considera no total macro apenas os PIX da Getnet efetivamente pagos (exclui os QR Codes expirados descartados)
             df_g_pix_validos_macro = df_res[df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX']
             if not df_g_pix_validos_macro.empty:
                 g_list.append(df_g_pix_validos_macro[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
@@ -482,7 +416,6 @@ if hits_file and getnet_file:
                 mod_g_macro = obter_categoria_macro(df_res.loc[idx, 'Modalidade_G'])
                 is_pix = 'PIX' in mod_h_macro or 'PIX' in mod_g_macro
                 
-                # Identifica se o funcionário lançou como Manual/Transferência ao invés de QR CODE
                 is_pix_manual_errado = ('MANUAL' in str(df_res.loc[idx, 'Modalidade_H']).upper() or 'TRANSFERENCIA' in str(df_res.loc[idx, 'Modalidade_H']).upper()) and ('GETNET PIX' in str(df_res.loc[idx, 'Modalidade_G']).upper())
 
                 dist_auto = levenshtein(auto_h, auto_g)
@@ -491,7 +424,6 @@ if hits_file and getnet_file:
                 auto_match = (auto_h == auto_g) or (dist_auto <= 2 and auto_h != '' and auto_g != '')
                 cv_match = (cv_h == cv_g) or (dist_cv <= 2 and cv_h != '' and cv_g != '')
 
-                # Checagem Rigorosa de Prioridades
                 if not np.isclose(v_h, v_g, atol=0.001):
                     df_res.loc[idx, 'Status'] = 'VALOR INCORRETO'
                 elif is_pix_manual_errado:
@@ -522,7 +454,6 @@ if hits_file and getnet_file:
                 if idx_i in used_trocados or df_res.loc[idx_i, 'Status'] == 'Batido - OK':
                     continue
                 
-                # Trava 1: Se estiver vazio, pula (deixa para a regra de AUSENTES)
                 auto_h_i = str(df_res.loc[idx_i, 'Auto_H']).strip()
                 if auto_h_i == '': continue
 
@@ -541,7 +472,6 @@ if hits_file and getnet_file:
                     v_g_j = pd.to_numeric(df_res.loc[idx_j, 'Valor_G'], errors='coerce') or 0
                     dt_h_j = str(df_res.loc[idx_j, 'Data_H']).strip()
                     
-                    # Trava 2: Só cruza se as datas forem exatamente iguais
                     if dt_h_i == dt_h_j and np.isclose(v_h_i, v_g_j, atol=0.001) and np.isclose(v_g_i, v_h_j, atol=0.001):
                         df_res.loc[idx_i, 'Status'] = 'AUTO/CV INCORRETOS'
                         df_res.loc[idx_j, 'Status'] = 'AUTO/CV INCORRETOS'
@@ -633,130 +563,6 @@ if hits_file and getnet_file:
             df_main = df_res[~df_res['Status'].isin(erros_isolamento)].copy()
             df_erros_dig = df_res[df_res['Status'].isin(erros_isolamento)].copy()
 
-            # --- PINTURA CIRÚRGICA (WEB INTERFACE) ---
-            def cor_tela(row):
-                est = [''] * len(row)
-                cols = list(row.index)
-                st_val = row['Status']
-                
-                if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
-                elif st_val == 'ESTORNO': est = ['background-color: #f3e8ff'] * len(row)
-                elif st_val == 'Falta na Getnet':
-                    for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
-                elif st_val == 'Falta no HITS':
-                    for c in ['Valor_G', 'CV_G', 'Auto_G', 'Data_G', 'Modalidade_G']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
-                elif st_val == 'A VERIFICAR':
-                    if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
-                elif st_val == 'CV INCORRETO':
-                    if 'CV_H' in cols and row['CV_H'] != '': est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
-                    if 'CV_G' in cols and row['CV_G'] != '': est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'ERRO DE MODALIDADE':
-                    if 'Modalidade_H' in cols and row['Modalidade_H'] != '': est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
-                    if 'Modalidade_G' in cols and row['Modalidade_G'] != '': est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'DATA INCORRETA':
-                    if 'Data_H' in cols and row['Data_H'] != '': est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
-                    if 'Data_G' in cols and row['Data_G'] != '': est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'VALOR INCORRETO':
-                    if 'Valor_H' in cols and row['Valor_H'] != '': est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
-                    if 'Valor_G' in cols and row['Valor_G'] != '': est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'AUTO INCORRETO':
-                    if 'Auto_H' in cols and row['Auto_H'] != '': est[cols.index('Auto_H')] = 'background-color: #ffb067; font-weight: bold;'
-                    if 'Auto_G' in cols and row['Auto_G'] != '': est[cols.index('Auto_G')] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'AUTO/CV INCORRETOS':
-                    for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'AUTO/CV AUSENTES':
-                    for c in ['Auto_H', 'CV_H']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'AUTO/CV INVERTIDO':
-                    for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
-                elif st_val == 'PAGAMENTO DUPLICADO':
-                    for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
-                        if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
-                
-                if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
-                    est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
-                    
-                return est
-
-            # --- DASHBOARD ---
-            st.success("✅ Conciliação Realizada com Sucesso!")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Total de Linhas", len(df_res))
-            c2.metric("OK / Estornos", len(df_res[df_res['Status'].isin(['Batido - OK', 'ESTORNO'])]))
-            c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
-            c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
-            c5.metric("Erros de Digitação", len(df_erros_dig))
-
-           # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
-            st.markdown("### 📋 Conciliação Geral (Pendências e Lançamentos Batidos)")
-
-            mask_tela_pix = (
-                df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
-                df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False)
-            )
-            df_main_pix = df_main[mask_tela_pix].drop(columns=['Auto_H', 'Auto_G', 'CV_H', 'CV_G'], errors='ignore')
-            df_main_cartao = df_main[~mask_tela_pix]
-
-            # Conta apenas divergências reais (exclui 'Batido - OK' e 'ESTORNO')
-            status_ok = ['Batido - OK', 'ESTORNO']
-            pend_cartao = len(df_main_cartao[~df_main_cartao['Status'].isin(status_ok)])
-            pend_pix = len(df_main_pix[~df_main_pix['Status'].isin(status_ok)])
-            pend_total = len(df_main[~df_main['Status'].isin(status_ok)])
-
-            def formatar_rotulo_aba(icone, nome, qtd):
-                if qtd == 0:
-                    return f"{icone} {nome} (✅ Sem pendências)"
-                palavra = "pendência" if qtd == 1 else "pendências"
-                return f"{icone} {nome} ({qtd} {palavra})"
-
-            lbl_cartao = formatar_rotulo_aba("💳", "Cartões", pend_cartao)
-            lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
-            lbl_todos = formatar_rotulo_aba("📑", "Visão Unificada", pend_total)
-
-            tab_cartao, tab_pix = st.tabs([lbl_cartao, lbl_pix])
-
-            with tab_cartao:
-                st.dataframe(
-                    df_main_cartao.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
-                    use_container_width=True
-                )
-
-            with tab_pix:
-                st.dataframe(
-                    df_main_pix.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
-                    use_container_width=True
-                )
-            
-            if not df_erros_dig.empty:
-                st.markdown("### ⌨️ Erros de Digitação Auto/CV (Prioridade Baixa)")
-                st.dataframe(df_erros_dig.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
-
-            st.markdown("### 📊 Volume Macro por Bandeira/Modalidade")
-            st.dataframe(df_macro_resumo.style.format({'Total HITS': formata_moeda, 'Total Getnet': formata_moeda, 'Diferença': formata_moeda}), use_container_width=True)
-
-            # --- EXIBIÇÃO: DINHEIRO FÍSICO ---
-            if not df_dinheiro_resumo.empty:
-                st.markdown("### 💵 Resumo de Recebimentos em Dinheiro")
-                col_din1, col_din2 = st.columns([2, 1])
-                
-                with col_din1:
-                    st.markdown("**Detalhado por Usuário**")
-                    st.dataframe(df_dinheiro_resumo.style.format({'Total Recebido': formata_moeda}), use_container_width=True)
-                    
-                with col_din2:
-                    st.markdown("**Total Consolidado por Dia**")
-                    df_dinheiro_totais_tela = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
-                    df_dinheiro_totais_tela.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
-                    st.dataframe(df_dinheiro_totais_tela.style.format({'Total do Dia': formata_moeda}), use_container_width=True)
-                    
-                    if df_dinheiro_totais_tela['Data'].nunique() > 1:
-                        total_periodo = df_dinheiro_totais_tela['Total do Dia'].sum()
-                        st.info(f"💰 **TOTAL DO PERÍODO:** {formata_moeda(total_periodo)}")
-                    
             # --- EXPORTAÇÃO EXCEL PROFISSIONAL ---
             def format_excel_sheet(ws, df_data, idx_map):
                 ws.freeze_panes = 'A2'
@@ -833,22 +639,18 @@ if hits_file and getnet_file:
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # PLANILHA 1: MAIN
                 df_main.to_excel(writer, index=False, sheet_name='Divergências Principais')
                 format_excel_sheet(writer.sheets['Divergências Principais'], df_main, {n: i for i, n in enumerate(df_main.columns, 1)})
                 
-                # PLANILHA 2: ERROS DE DIGITAÇÃO
                 if not df_erros_dig.empty:
                     df_erros_dig.to_excel(writer, index=False, sheet_name='Erros de Digitação')
                     format_excel_sheet(writer.sheets['Erros de Digitação'], df_erros_dig, {n: i for i, n in enumerate(df_erros_dig.columns, 1)})
 
-                # PLANILHA 3: RESUMO DINHEIRO INTELIGENTE
                 if not df_dinheiro_resumo.empty:
                     df_dinheiro_resumo.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=0)
                     df_dinheiro_totais = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
                     df_dinheiro_totais.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
                     
-                    # Condição: Adiciona uma linha em branco e o total geral se houver mais de 1 dia
                     if df_dinheiro_totais['Data'].nunique() > 1:
                         total_periodo = df_dinheiro_totais['Total do Dia'].sum()
                         df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['', None] 
@@ -875,7 +677,6 @@ if hits_file and getnet_file:
                             if r > 1 and c in [3, 6] and cell.value not in ['', None]:
                                 cell.number_format = '"R$" #,##0.00'
 
-                # PLANILHA 4: RESUMO FINANCEIRO POR BANDEIRA
                 if not df_macro_resumo.empty:
                     df_macro_resumo.to_excel(writer, index=False, sheet_name='Resumo por Bandeira')
                     ws_mac = writer.sheets['Resumo por Bandeira']
@@ -896,9 +697,171 @@ if hits_file and getnet_file:
                             if r > 1 and c in [2, 3, 4]:
                                 cell.number_format = '"R$" #,##0.00'
 
-            st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # --- GESTÃO DE MEMÓRIA: Salva tudo na sessão do Streamlit ---
+            st.session_state['conciliacao_pronta'] = True
+            st.session_state['df_res'] = df_res
+            st.session_state['df_main'] = df_main
+            st.session_state['df_erros_dig'] = df_erros_dig
+            st.session_state['df_macro_resumo'] = df_macro_resumo
+            st.session_state['df_dinheiro_resumo'] = df_dinheiro_resumo
+            st.session_state['excel_bytes'] = output.getvalue()
+
+    # ---------------------------------------------------------
+    # BLOCO 2: EXIBIÇÃO NA TELA (Lê da memória sem reprocessar arquivos)
+    # ---------------------------------------------------------
+    if st.session_state.get('conciliacao_pronta'):
+        df_res = st.session_state['df_res']
+        df_main = st.session_state['df_main']
+        df_erros_dig = st.session_state['df_erros_dig']
+        df_macro_resumo = st.session_state['df_macro_resumo']
+        df_dinheiro_resumo = st.session_state['df_dinheiro_resumo']
+
+        # --- PINTURA CIRÚRGICA (WEB INTERFACE) ---
+        def cor_tela(row):
+            est = [''] * len(row)
+            cols = list(row.index)
+            st_val = row['Status']
+            
+            if st_val == 'Batido - OK': est = ['background-color: #e6ffed'] * len(row)
+            elif st_val == 'ESTORNO': est = ['background-color: #f3e8ff'] * len(row)
+            elif st_val == 'Falta na Getnet':
+                for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
+            elif st_val == 'Falta no HITS':
+                for c in ['Valor_G', 'CV_G', 'Auto_G', 'Data_G', 'Modalidade_G']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffeef0'
+            elif st_val == 'A VERIFICAR':
+                if 'Status' in cols: est[cols.index('Status')] = 'background-color: #d0ebff; font-weight: bold; color: #004085;'
+            elif st_val == 'CV INCORRETO':
+                if 'CV_H' in cols and row['CV_H'] != '': est[cols.index('CV_H')] = 'background-color: #ffb067; font-weight: bold;'
+                if 'CV_G' in cols and row['CV_G'] != '': est[cols.index('CV_G')] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'ERRO DE MODALIDADE':
+                if 'Modalidade_H' in cols and row['Modalidade_H'] != '': est[cols.index('Modalidade_H')] = 'background-color: #ffb067; font-weight: bold;'
+                if 'Modalidade_G' in cols and row['Modalidade_G'] != '': est[cols.index('Modalidade_G')] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'DATA INCORRETA':
+                if 'Data_H' in cols and row['Data_H'] != '': est[cols.index('Data_H')] = 'background-color: #ffb067; font-weight: bold;'
+                if 'Data_G' in cols and row['Data_G'] != '': est[cols.index('Data_G')] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'VALOR INCORRETO':
+                if 'Valor_H' in cols and row['Valor_H'] != '': est[cols.index('Valor_H')] = 'background-color: #ffb067; font-weight: bold;'
+                if 'Valor_G' in cols and row['Valor_G'] != '': est[cols.index('Valor_G')] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'AUTO INCORRETO':
+                if 'Auto_H' in cols and row['Auto_H'] != '': est[cols.index('Auto_H')] = 'background-color: #ffb067; font-weight: bold;'
+                if 'Auto_G' in cols and row['Auto_G'] != '': est[cols.index('Auto_G')] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'AUTO/CV INCORRETOS':
+                for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'AUTO/CV AUSENTES':
+                for c in ['Auto_H', 'CV_H']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'AUTO/CV INVERTIDO':
+                for c in ['Auto_H', 'Auto_G', 'CV_H', 'CV_G']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
+            elif st_val == 'PAGAMENTO DUPLICADO':
+                for c in ['Pagamento', 'Conta', 'Valor_H', 'Auto_H', 'CV_H', 'Data_H', 'Modalidade_H', 'Usuário']:
+                    if c in cols: est[cols.index(c)] = 'background-color: #ffb067; font-weight: bold;'
+            
+            if str(row.get('ID', '')).strip() != '' and 'ID' in cols:
+                est[cols.index('ID')] = 'background-color: #fce83a; font-weight: bold; color: black;'
+                
+            return est
+
+        # --- DASHBOARD ---
+        st.success("✅ Conciliação Realizada com Sucesso!")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total de Linhas", len(df_res))
+        c2.metric("OK / Estornos", len(df_res[df_res['Status'].isin(['Batido - OK', 'ESTORNO'])]))
+        c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
+        c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
+        c5.metric("Erros de Digitação", len(df_erros_dig))
+
+        # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
+        st.markdown("### 📋 Conciliação Geral (Pendências e Lançamentos Batidos)")
+
+        mask_tela_pix = (
+            df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
+            df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False)
+        )
+        df_main_pix = df_main[mask_tela_pix].drop(columns=['Auto_H', 'Auto_G', 'CV_H', 'CV_G'], errors='ignore')
+        df_main_cartao = df_main[~mask_tela_pix]
+
+        status_ok = ['Batido - OK', 'ESTORNO']
+        pend_cartao = len(df_main_cartao[~df_main_cartao['Status'].isin(status_ok)])
+        pend_pix = len(df_main_pix[~df_main_pix['Status'].isin(status_ok)])
+
+        def formatar_rotulo_aba(icone, nome, qtd):
+            if qtd == 0:
+                return f"{icone} {nome} (✅ Sem pendências)"
+            palavra = "pendência" if qtd == 1 else "pendências"
+            return f"{icone} {nome} ({qtd} {palavra})"
+
+        lbl_cartao = formatar_rotulo_aba("💳", "Cartões", pend_cartao)
+        lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
+
+        col_ctrl1, col_ctrl2 = st.columns([2, 1])
+        with col_ctrl1:
+            aba_selecionada = st.segmented_control(
+                "Selecione a modalidade:",
+                options=[lbl_cartao, lbl_pix],
+                default=lbl_cartao,
+                label_visibility="collapsed"
+            )
+        with col_ctrl2:
+            ocultar_ok = st.toggle("🔍 Ocultar 'Batido - OK' na tela", value=False)
+
+        if aba_selecionada == lbl_pix:
+            df_exibir = df_main_pix[df_main_pix['Status'] != 'Batido - OK'] if ocultar_ok else df_main_pix
+            if df_exibir.empty:
+                st.info("🎉 Nenhuma pendência de PIX encontrada!")
+            else:
+                st.dataframe(
+                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
+        else:
+            df_exibir = df_main_cartao[df_main_cartao['Status'] != 'Batido - OK'] if ocultar_ok else df_main_cartao
+            if df_exibir.empty:
+                st.info("🎉 Nenhuma pendência de Cartão encontrada!")
+            else:
+                st.dataframe(
+                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
+        
+        if not df_erros_dig.empty:
+            st.markdown("### ⌨️ Erros de Digitação Auto/CV (Prioridade Baixa)")
+            st.dataframe(df_erros_dig.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
+
+        st.markdown("### 📊 Volume Macro por Bandeira/Modalidade")
+        st.dataframe(df_macro_resumo.style.format({'Total HITS': formata_moeda, 'Total Getnet': formata_moeda, 'Diferença': formata_moeda}), use_container_width=True)
+
+        # --- EXIBIÇÃO: DINHEIRO FÍSICO ---
+        if not df_dinheiro_resumo.empty:
+            st.markdown("### 💵 Resumo de Recebimentos em Dinheiro")
+            col_din1, col_din2 = st.columns([2, 1])
+            
+            with col_din1:
+                st.markdown("**Detalhado por Usuário**")
+                st.dataframe(df_dinheiro_resumo.style.format({'Total Recebido': formata_moeda}), use_container_width=True)
+                
+            with col_din2:
+                st.markdown("**Total Consolidado por Dia**")
+                df_dinheiro_totais_tela = df_dinheiro_resumo.groupby('Data', as_index=False)['Total Recebido'].sum()
+                df_dinheiro_totais_tela.rename(columns={'Total Recebido': 'Total do Dia'}, inplace=True)
+                st.dataframe(df_dinheiro_totais_tela.style.format({'Total do Dia': formata_moeda}), use_container_width=True)
+                
+                if df_dinheiro_totais_tela['Data'].nunique() > 1:
+                    total_periodo = df_dinheiro_totais_tela['Total do Dia'].sum()
+                    st.info(f"💰 **TOTAL DO PERÍODO:** {formata_moeda(total_periodo)}")
+
+        st.download_button(
+            "📥 BAIXAR RESULTADO (.xlsx)",
+            st.session_state['excel_bytes'],
+            "conciliacao_pro.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 else:
+    st.session_state['conciliacao_pronta'] = False
     st.info("💡 Dica: Arraste os arquivos acima para começar. Relatório da GetNet em excel, detalhado, e todas as modalidades.")
 
 # --- FOOTER ---
