@@ -23,12 +23,46 @@ st.markdown("""
         border: 2px dashed var(--primary) !important; border-radius: 15px !important;
         background-color: var(--card-bg) !important; padding: 20px !important; transition: transform 0.3s ease;
     }
-    .stButton>button {
-        width: 100% !important; background: linear-gradient(135deg, #11CAA0 0%, #0da582 100%) !important;
-        border-radius: 10px !important; border: none !important; padding: 15px !important; transition: 0.3s all !important;
+    /* Botão Principal e Aba Ativa (Verde #11CAA0) */
+    .stButton>button[kind="primary"],
+    .stButton>button[data-testid="baseButton-primary"] {
+        width: 100% !important;
+        background: linear-gradient(135deg, #11CAA0 0%, #0da582 100%) !important;
+        border-radius: 12px !important;
+        border: none !important;
+        padding: 12px 20px !important;
+        box-shadow: 0 4px 14px rgba(17, 202, 160, 0.35) !important;
+        transition: 0.2s all !important;
     }
-    .stButton>button div p, .stButton>button span, .stButton>button {
-        color: white !important; font-weight: 700 !important; font-size: 16px !important;
+    .stButton>button[kind="primary"] p,
+    .stButton>button[data-testid="baseButton-primary"] p {
+        color: #002c51 !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
+    }
+
+    /* Aba Inativa (Glassmorphism translúcido sem linha vermelha) */
+    .stButton>button[kind="secondary"],
+    .stButton>button[data-testid="baseButton-secondary"] {
+        width: 100% !important;
+        background: rgba(148, 163, 184, 0.14) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(148, 163, 184, 0.25) !important;
+        border-radius: 12px !important;
+        padding: 12px 20px !important;
+        transition: 0.2s all !important;
+    }
+    .stButton>button[kind="secondary"]:hover,
+    .stButton>button[data-testid="baseButton-secondary"]:hover {
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-color: #11CAA0 !important;
+    }
+    .stButton>button[kind="secondary"] p,
+    .stButton>button[data-testid="baseButton-secondary"] p {
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
     }
     div[data-testid="metric-container"] {
         background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
@@ -164,7 +198,7 @@ if hits_file and getnet_file:
     # ---------------------------------------------------------
     # BLOCO 1: PROCESSAMENTO E GERAÇÃO DO EXCEL (Só roda ao clicar no botão)
     # ---------------------------------------------------------
-    if st.button("ANALISAR E CONCILIAR AGORA"):
+    if st.button("ANALISAR E CONCILIAR AGORA", type="primary"):
         with st.spinner("Processando Conciliação Financeira..."):
             
             # --- 1. GETNET ---
