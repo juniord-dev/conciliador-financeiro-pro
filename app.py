@@ -81,16 +81,18 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
     }
 
-    [data-testid="stTabs"] [role="tablist"] > *:not([role="tab"]),
+    /* Remove a linha vermelha e a borda cinza inferior em qualquer posição do DOM */
+    [data-testid="stTabs"] [role="tablist"] {
+        border-bottom: none !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stTabs"] [role="tablist"] ~ div[style*="background"],
     [data-testid="stTabs"] [data-baseweb="tab-highlight"],
     [data-testid="stTabs"] [data-baseweb="tab-border"],
-    [data-testid="stTabs"] [data-testid="stTabHighlight"] {
+    [data-testid="stTabs"] [data-testid="stTabHighlight"],
+    [data-testid="stTabs"] [data-testid="stTabBorder"] {
         display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
         height: 0px !important;
-        max-height: 0px !important;
-        transform: scaleY(0) !important;
         background: transparent !important;
         background-color: transparent !important;
     }
