@@ -154,10 +154,7 @@ if hits_file and getnet_file:
                 df_g_pix.columns = df_g_pix.columns.astype(str).str.strip().str.upper()
                 col_st_pix = next((c for c in df_g_pix.columns if 'STATUS' in str(c)), None)
                 if col_st_pix:
-                    # WHITELIST PIX: Aceita apenas transações efetivamente liquidadas ('paga')
-                    # Ignora 'Qr Code Criado', 'Qr Code Expirado', cancelamentos e linhas de rodapé
-                    status_pix_norm = df_g_pix[col_st_pix].fillna('').astype(str).str.strip().str.lower()
-                    df_g_pix = df_g_pix[status_pix_norm == 'paga'].copy()
+                    df_g_pix = df_g_pix[~df_g_pix[col_st_pix].astype(str).str.contains('Cancelad|Expira|Recusad|Nega|Erro', case=False, na=False)]
                 col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
                 col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
                 df_g_pix = pd.DataFrame({
@@ -613,7 +610,7 @@ if hits_file and getnet_file:
 
             # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
             st.markdown("### ⚠️ Divergências Principais (Prioridade Alta)")
-            
+
             mask_tela_pix = (
                 df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
                 df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False) |
@@ -748,7 +745,7 @@ if hits_file and getnet_file:
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # PLANILHA 1: MAIN (MANTÉM TUDO JUNTO COMO JÁ É HOJE)
+                # PLANILHA 1: MAIN
                 df_main.to_excel(writer, index=False, sheet_name='Divergências Principais')
                 format_excel_sheet(writer.sheets['Divergências Principais'], df_main, {n: i for i, n in enumerate(df_main.columns, 1)})
                 
