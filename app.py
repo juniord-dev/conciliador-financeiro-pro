@@ -80,16 +80,19 @@ st.markdown("""
         border-bottom: none !important;
         box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
     }
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"]::before,
-    [data-testid="stTabs"] [role="tab"][aria-selected="true"]::after,
-    [data-testid="stTabs"] [data-testid="stTabHighlight"],
+
+    [data-testid="stTabs"] [role="tablist"] > *:not([role="tab"]),
     [data-testid="stTabs"] [data-baseweb="tab-highlight"],
     [data-testid="stTabs"] [data-baseweb="tab-border"],
-    [data-testid="stTabs"] [role="tablist"] > div:last-child {
+    [data-testid="stTabs"] [data-testid="stTabHighlight"] {
         display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
         height: 0px !important;
-        border: none !important;
+        max-height: 0px !important;
+        transform: scaleY(0) !important;
         background: transparent !important;
+        background-color: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -712,7 +715,7 @@ if hits_file and getnet_file:
             lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
             lbl_todos = formatar_rotulo_aba("📑", "Visão Unificada", pend_total)
 
-            tab_cartao, tab_pix, tab_todos = st.tabs([lbl_cartao, lbl_pix, lbl_todos])
+           tab_cartao, tab_pix = st.tabs([lbl_cartao, lbl_pix])
 
             with tab_cartao:
                 st.dataframe(
@@ -723,12 +726,6 @@ if hits_file and getnet_file:
             with tab_pix:
                 st.dataframe(
                     df_main_pix.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
-                    use_container_width=True
-                )
-
-            with tab_todos:
-                st.dataframe(
-                    df_main.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
                     use_container_width=True
                 )
             
