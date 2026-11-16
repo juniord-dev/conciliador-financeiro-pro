@@ -841,16 +841,46 @@ if hits_file and getnet_file:
         lbl_cartao = formatar_rotulo_aba("💳", "Cartões", pend_cartao)
         lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
 
-        col_ctrl1, col_ctrl2 = st.columns([3, 1])
-        with col_ctrl1:
-            aba_selecionada = st.segmented_control(
-                "Selecione a modalidade:",
-                options=[lbl_cartao, lbl_pix],
-                default=lbl_cartao,
-                label_visibility="collapsed"
-            )
-        with col_ctrl2:
+        # Inicializa a aba ativa na memória (padrão: 'cartao')
+        if 'aba_ativa' not in st.session_state:
+            st.session_state['aba_ativa'] = 'cartao'
+
+        col_btn1, col_btn2, col_space, col_tgl = st.columns([2.2, 2.2, 1.6, 2.5])
+
+        with col_btn1:
+            # Destaca o botão ativo com type="primary" (verde) e o inativo com type="secondary"
+            tipo_cartao = "primary" if st.session_state['aba_ativa'] == 'cartao' else "secondary"
+            if st.button(lbl_cartao, key="btn_tab_cartao", type=tipo_cartao, use_container_width=True):
+                st.session_state['aba_ativa'] = 'cartao'
+                st.rerun()
+
+        with col_btn2:
+            tipo_pix = "primary" if st.session_state['aba_ativa'] == 'pix' else "secondary"
+            if st.button(lbl_pix, key="btn_tab_pix", type=tipo_pix, use_container_width=True):
+                st.session_state['aba_ativa'] = 'pix'
+                st.rerun()
+
+        with col_tgl:
             ocultar_ok = st.toggle("🔍 Ocultar 'Batido - OK' na tela", value=False)
+
+        if st.session_state['aba_ativa'] == 'pix':
+            df_exibir = df_main_pix[df_main_pix['Status'] != 'Batido - OK'] if ocultar_ok else df_main_pix
+            if df_exibir.empty:
+                st.info("🎉 Nenhuma pendência de PIX encontrada!")
+            else:
+                st.dataframe(
+                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
+        else:
+            df_exibir = df_main_cartao[df_main_cartao['Status'] != 'Batido - OK'] if ocultar_ok else df_main_cartao
+            if df_exibir.empty:
+                st.info("🎉 Nenhuma pendência de Cartão encontrada!")
+            else:
+                st.dataframe(
+                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
 
         if aba_selecionada == lbl_pix:
             df_exibir = df_main_pix[df_main_pix['Status'] != 'Batido - OK'] if ocultar_ok else df_main_pix
