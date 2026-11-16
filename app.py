@@ -35,41 +35,47 @@ st.markdown("""
         border-bottom: 4px solid var(--primary);
     }
     [data-testid="stElementToolbar"] { display: none !important; }
-    /* Estilização moderna para as abas (st.tabs) */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background-color: rgba(148, 163, 184, 0.12);
-        padding: 8px 10px;
+    /* Estilização moderna e blindada para as abas (st.tabs) */
+    [data-testid="stTabs"] [role="tablist"] {
+        gap: 10px !important;
+        background-color: rgba(148, 163, 184, 0.14) !important;
+        padding: 8px 10px !important;
         border-radius: 16px !important;
-        width: fit-content;
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        width: fit-content !important;
+        border: 1px solid rgba(148, 163, 184, 0.25) !important;
     }
-    .stTabs button[data-baseweb="tab"] {
-        height: 44px !important;
+    [data-testid="stTabs"] [role="tab"] {
+        height: auto !important;
+        min-height: 42px !important;
         background-color: transparent !important;
         border-radius: 12px !important;
-        padding: 8px 24px !important;
+        padding: 8px 22px !important;
         margin: 0 !important;
-        font-weight: 600 !important;
-        color: #94a3b8 !important;
         border: none !important;
+        color: #94a3b8 !important;
         transition: all 0.2s ease !important;
     }
-    .stTabs button[data-baseweb="tab"]:hover {
+    [data-testid="stTabs"] [role="tab"] p {
+        color: inherit !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        margin: 0 !important;
+    }
+    [data-testid="stTabs"] [role="tab"]:hover {
         background-color: rgba(255, 255, 255, 0.08) !important;
         color: #f8fafc !important;
     }
-    .stTabs button[data-baseweb="tab"][aria-selected="true"] {
+    [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
         background-color: #11CAA0 !important;
         color: #002c51 !important;
-        box-shadow: 0 4px 12px rgba(17, 202, 160, 0.3) !important;
+        box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
     }
-    .stTabs button[data-baseweb="tab"][aria-selected="true"] p {
+    [data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
         color: #002c51 !important;
         font-weight: 700 !important;
     }
-    .stTabs [data-baseweb="tab-highlight"],
-    .stTabs [data-baseweb="tab-border"] {
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    [data-testid="stTabs"] [data-baseweb="tab-border"] {
         display: none !important;
     }
     </style>
