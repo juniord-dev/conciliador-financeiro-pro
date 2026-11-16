@@ -35,6 +35,50 @@ st.markdown("""
         border-bottom: 4px solid var(--primary);
     }
     [data-testid="stElementToolbar"] { display: none !important; }
+    /* Visual Glassmorphism Verde (#11CAA0) no st.segmented_control (sem linhas residuais) */
+    [data-testid="stSegmentedControl"] > div {
+        background: rgba(148, 163, 184, 0.14) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(148, 163, 184, 0.25) !important;
+        border-radius: 16px !important;
+        padding: 6px !important;
+        gap: 8px !important;
+        width: fit-content !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+    }
+    [data-testid="stBaseButton-segmented_control"],
+    [data-testid="stBaseButton-segmented_controlActive"] {
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 10px 22px !important;
+        min-height: 42px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stBaseButton-segmented_control"] {
+        background: transparent !important;
+        color: #94a3b8 !important;
+    }
+    [data-testid="stBaseButton-segmented_control"]:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: #f8fafc !important;
+    }
+    [data-testid="stBaseButton-segmented_controlActive"] {
+        background: #11CAA0 !important;
+        color: #002c51 !important;
+        box-shadow: 0 4px 14px rgba(17, 202, 160, 0.35) !important;
+    }
+    [data-testid="stBaseButton-segmented_controlActive"] p,
+    [data-testid="stBaseButton-segmented_controlActive"] span {
+        color: #002c51 !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stBaseButton-segmented_control"] p,
+    [data-testid="stBaseButton-segmented_control"] span {
+        color: inherit !important;
+        font-weight: 600 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -797,7 +841,7 @@ if hits_file and getnet_file:
         lbl_cartao = formatar_rotulo_aba("💳", "Cartões", pend_cartao)
         lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
 
-        col_ctrl1, col_ctrl2 = st.columns([2, 1])
+        col_ctrl1, col_ctrl2 = st.columns([3, 1])
         with col_ctrl1:
             aba_selecionada = st.segmented_control(
                 "Selecione a modalidade:",
