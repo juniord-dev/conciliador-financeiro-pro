@@ -765,4 +765,60 @@ if hits_file and getnet_file:
                     
                     # Condição: Adiciona uma linha em branco e o total geral se houver mais de 1 dia
                     if df_dinheiro_totais['Data'].nunique() > 1:
-                        total_periodo =
+                        total_periodo = df_dinheiro_totais['Total do Dia'].sum()
+                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['', None] 
+                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['TOTAL DO PERÍODO:', total_periodo]
+
+                    df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=4)
+                    
+                    ws_din = writer.sheets['Dinheiro Recebido']
+                    ws_din.freeze_panes = 'A2'
+                    
+                    for column in ws_din.columns:
+                        max_length = 0
+                        col_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
+                            except: pass
+                        ws_din.column_dimensions[col_letter].width = min((max_length + 2), 35)
+                        
+                    for r in range(1, ws_din.max_row + 1):
+                        for c in range(1, ws_din.max_column + 1):
+                            cell = ws_din.cell(r, c)
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                            if r > 1 and c in [3, 6] and cell.value not in ['', None]:
+                                cell.number_format = '"R$" #,##0.00'
+
+                # PLANILHA 4: RESUMO FINANCEIRO POR BANDEIRA
+                if not df_macro_resumo.empty:
+                    df_macro_resumo.to_excel(writer, index=False, sheet_name='Resumo por Bandeira')
+                    ws_mac = writer.sheets['Resumo por Bandeira']
+                    
+                    for column in ws_mac.columns:
+                        max_length = 0
+                        col_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
+                            except: pass
+                        ws_mac.column_dimensions[col_letter].width = max(max_length + 4, 18)
+                        
+                    for r in range(1, ws_mac.max_row + 1):
+                        for c in range(1, ws_mac.max_column + 1):
+                            cell = ws_mac.cell(r, c)
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                            if r > 1 and c in [2, 3, 4]:
+                                cell.number_format = '"R$" #,##0.00'
+
+            st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+else:
+    st.info("💡 Dica: Arraste os arquivos acima para começar. Relatório da GetNet em excel, detalhado, e todas as modalidades.")
+
+# --- FOOTER ---
+st.markdown("""
+    <div style='text-align: center; margin-top: 50px; padding: 20px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;'>
+        Desenvolvido por <b>Junior Dantas</b>
+    </div>
+""", unsafe_allow_html=True)
