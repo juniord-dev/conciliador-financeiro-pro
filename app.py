@@ -915,25 +915,6 @@ if hits_file and getnet_file:
                     df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
                     use_container_width=True
                 )
-
-        if st.session_state['aba_ativa'] == 'pix':
-            df_exibir = df_main_pix[df_main_pix['Status'] != 'Batido - OK'] if ocultar_ok else df_main_pix
-            if df_exibir.empty:
-                st.info("🎉 Nenhuma pendência de PIX encontrada!")
-            else:
-                st.dataframe(
-                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
-                    use_container_width=True
-                )
-        else:
-            df_exibir = df_main_cartao[df_main_cartao['Status'] != 'Batido - OK'] if ocultar_ok else df_main_cartao
-            if df_exibir.empty:
-                st.info("🎉 Nenhuma pendência de Cartão encontrada!")
-            else:
-                st.dataframe(
-                    df_exibir.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
-                    use_container_width=True
-                )
         
         if not df_erros_dig.empty:
             st.markdown("### ⌨️ Erros de Digitação Auto/CV (Prioridade Baixa)")
