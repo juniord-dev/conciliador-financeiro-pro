@@ -35,6 +35,40 @@ st.markdown("""
         border-bottom: 4px solid var(--primary);
     }
     [data-testid="stElementToolbar"] { display: none !important; }
+    /* Estilização moderna para as abas (st.tabs) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: #e2e8f0;
+        padding: 6px;
+        border-radius: 12px;
+        width: fit-content;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 40px;
+        background-color: transparent;
+        border-radius: 8px;
+        padding: 0px 18px;
+        font-weight: 600;
+        color: #475569;
+        border: none !important;
+        transition: all 0.2s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: rgba(255, 255, 255, 0.6);
+        color: #002c51;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #11CAA0 !important;
+        color: #ffffff !important;
+        box-shadow: 0 2px 6px rgba(17, 202, 160, 0.35);
+    }
+    .stTabs [aria-selected="true"] p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    .stTabs [data-baseweb="tab-highlight"] {
+        display: none !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -631,7 +665,7 @@ if hits_file and getnet_file:
             c5.metric("Erros de Digitação", len(df_erros_dig))
 
            # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
-            st.markdown("### ⚠️ Divergências Principais (Prioridade Alta)")
+            st.markdown("### 📋 Conciliação Geral (Pendências e Lançamentos Batidos)")
 
             mask_tela_pix = (
                 df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
@@ -640,11 +674,17 @@ if hits_file and getnet_file:
             df_main_pix = df_main[mask_tela_pix].drop(columns=['Auto_H', 'Auto_G', 'CV_H', 'CV_G'], errors='ignore')
             df_main_cartao = df_main[~mask_tela_pix]
 
-            tab_cartao, tab_pix, tab_todos = st.tabs([
-                f"💳 Cartões ({len(df_main_cartao)})",
-                f"💠 PIX ({len(df_main_pix)})",
-                f"📋 Todos Juntos ({len(df_main)})"
-            ])
+            # Conta apenas divergências reais (exclui 'Batido - OK' e 'ESTORNO')
+            status_ok = ['Batido - OK', 'ESTORNO']
+            pend_cartao = len(df_main_cartao[~df_main_cartao['Status'].isin(status_ok)])
+            pend_pix = len(df_main_pix[~df_main_pix['Status'].isin(status_ok)])
+            pend_total = len(df_main[~df_main['Status'].isin(status_ok)])
+
+            lbl_cartao = f"💳 Cartões ({pend_cartao} pendências / {len(df_main_cartao)} total)" if pend_cartao > 0 else f"💳 Cartões (✅ 0 pendências / {len(df_main_cartao)} total)"
+            lbl_pix = f"💠 PIX ({pend_pix} pendências / {len(df_main_pix)} total)" if pend_pix > 0 else f"💠 PIX (✅ 0 pendências / {len(df_main_pix)} total)"
+            lbl_todos = f"📑 Visão Unificada ({pend_total} pendências / {len(df_main)} total)"
+
+            tab_cartao, tab_pix, tab_todos = st.tabs([lbl_cartao, lbl_pix, lbl_todos])
 
             with tab_cartao:
                 st.dataframe(
