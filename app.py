@@ -162,7 +162,7 @@ if hits_file and getnet_file:
                     'Valor_G': garantir_numero(df_g_pix[col_v_pix]) if col_v_pix else 0,
                     'Data_G': df_g_pix[col_d_pix] if col_d_pix else '',
                     'Modalidade_G': 'GETNET PIX',
-                    'Auto_G': 'PIX_SEM_AUT',
+                    'Auto_G': '',
                     'CV_G': '',
                     'Status_Pix_Orig': status_orig_pix
                 })
@@ -630,15 +630,14 @@ if hits_file and getnet_file:
             c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
             c5.metric("Erros de Digitação", len(df_erros_dig))
 
-            # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
+           # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
             st.markdown("### ⚠️ Divergências Principais (Prioridade Alta)")
 
             mask_tela_pix = (
                 df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
-                df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False) |
-                (df_main['Auto_G'].astype(str).str.upper() == 'PIX_SEM_AUT')
+                df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False)
             )
-            df_main_pix = df_main[mask_tela_pix]
+            df_main_pix = df_main[mask_tela_pix].drop(columns=['Auto_H', 'Auto_G', 'CV_H', 'CV_G'], errors='ignore')
             df_main_cartao = df_main[~mask_tela_pix]
 
             tab_cartao, tab_pix, tab_todos = st.tabs([
