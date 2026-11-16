@@ -81,20 +81,20 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(17, 202, 160, 0.35) !important;
     }
 
-    /* Remove a linha vermelha e a borda cinza inferior em qualquer posição do DOM */
-    [data-testid="stTabs"] [role="tablist"] {
-        border-bottom: none !important;
-        box-shadow: none !important;
-    }
-    [data-testid="stTabs"] [role="tablist"] ~ div[style*="background"],
+    /* Elimina definitivamente a barra vermelha (2px) e a linha cinza (1px) do st.tabs */
     [data-testid="stTabs"] [data-baseweb="tab-highlight"],
     [data-testid="stTabs"] [data-baseweb="tab-border"],
-    [data-testid="stTabs"] [data-testid="stTabHighlight"],
-    [data-testid="stTabs"] [data-testid="stTabBorder"] {
+    [data-testid="stTabs"] div[style*="height: 2px"],
+    [data-testid="stTabs"] div[style*="height: 1px"] {
         display: none !important;
         height: 0px !important;
+        min-height: 0px !important;
         background: transparent !important;
         background-color: transparent !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        border-bottom: none !important;
+        box-shadow: none !important;
     }
     </style>
     """, unsafe_allow_html=True)
