@@ -157,10 +157,14 @@ if hits_file and getnet_file:
                     df_g_pix = df_g_pix[~df_g_pix[col_st_pix].astype(str).str.contains('Cancelad|Expira|Recusad|Nega|Erro', case=False, na=False)]
                 col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
                 col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
+                status_orig_pix = df_g_pix[col_st_pix].fillna('').astype(str).str.strip().str.upper() if col_st_pix else ''
                 df_g_pix = pd.DataFrame({
                     'Valor_G': garantir_numero(df_g_pix[col_v_pix]) if col_v_pix else 0,
                     'Data_G': df_g_pix[col_d_pix] if col_d_pix else '',
-                    'Modalidade_G': 'GETNET PIX', 'Auto_G': 'PIX_SEM_AUT', 'CV_G': ''
+                    'Modalidade_G': 'GETNET PIX',
+                    'Auto_G': 'PIX_SEM_AUT',
+                    'CV_G': '',
+                    'Status_Pix_Orig': status_orig_pix
                 })
 
             # --- 2. HITS E EXTRAÇÃO DE DINHEIRO ---
@@ -189,31 +193,6 @@ if hits_file and getnet_file:
             
             filtro_h = 'FATURADO|DINHEIRO|GET ECO|CENTRAL TRANSFERENCIA/PIX'
             df_hits = df_hits[~df_hits['Modalidade_H'].astype(str).str.upper().str.contains(filtro_h, regex=True)]
-
-            # CRIAÇÃO DA TABELA COMPARATIVA MACRO POR BANDEIRA / MODALIDADE
-            df_h_macro = df_hits.copy()
-            # Impede que PIX CNPJ e MANUAL entrem no somatório financeiro
-            df_h_macro = df_h_macro[~df_h_macro['Modalidade_H'].astype(str).str.upper().str.contains('CNPJ|MANUAL', regex=True)]
-            df_h_macro['Categoria'] = df_h_macro['Modalidade_H'].apply(obter_categoria_macro)
-            res_h = df_h_macro.groupby('Categoria')['Valor_H'].apply(lambda x: garantir_numero(x).sum()).reset_index()
-            res_h.rename(columns={'Valor_H': 'Total HITS'}, inplace=True)
-            
-            g_list = []
-            if not df_g_cartoes.empty:
-                g_list.append(df_g_cartoes[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
-            if not df_g_pix.empty:
-                g_list.append(df_g_pix[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
-            
-            if g_list:
-                df_g_macro = pd.concat(g_list, ignore_index=True)
-                df_g_macro['Categoria'] = df_g_macro['Mod'].apply(obter_categoria_macro)
-                res_g = df_g_macro.groupby('Categoria')['Val'].sum().reset_index()
-                res_g.rename(columns={'Val': 'Total Getnet'}, inplace=True)
-            else:
-                res_g = pd.DataFrame(columns=['Categoria', 'Total Getnet'])
-                
-            df_macro_resumo = pd.merge(res_h, res_g, on='Categoria', how='outer').fillna(0)
-            df_macro_resumo['Diferença'] = df_macro_resumo['Total HITS'] - df_macro_resumo['Total Getnet']
 
             mask_manual = df_hits['Modalidade_H'].astype(str).str.upper().str.contains('MANUAL', na=False)
             df_hits_manual = df_hits[mask_manual].copy()
@@ -284,6 +263,9 @@ if hits_file and getnet_file:
 
             # --- 4. PAREAMENTO SECUNDÁRIO E TRATAMENTO ---
             df_res = pd.concat([df_m_cart, df_m_pix], ignore_index=True)
+            if 'Status_Pix_Orig' not in df_res.columns:
+                df_res['Status_Pix_Orig'] = ''
+            df_res['Status_Pix_Orig'] = df_res['Status_Pix_Orig'].fillna('').astype(str).str.strip().str.upper()
             df_res['ID'] = '' 
             
             df_res['CV_H'] = df_res['CV_H'].apply(limpar_cv)
@@ -331,6 +313,7 @@ if hits_file and getnet_file:
                                 df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
                                 df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
                                 df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
+                                df_res.loc[idx_h, 'Status_Pix_Orig'] = df_res.loc[idx_g, 'Status_Pix_Orig']
                                 df_res.loc[idx_h, '_merge'] = 'both'
                                 
                                 used_g.add(idx_g)
@@ -352,6 +335,7 @@ if hits_file and getnet_file:
                 df_hits_manual['ID'] = ''
                 df_hits_manual['Status'] = 'A VERIFICAR'
                 df_hits_manual['_merge'] = 'left_only'
+                df_hits_manual['Status_Pix_Orig'] = ''
                 df_hits_manual['Data_H'] = pd.to_datetime(df_hits_manual['Data_H'], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
                 df_res = pd.concat([df_res, df_hits_manual], ignore_index=True)
 
@@ -376,6 +360,7 @@ if hits_file and getnet_file:
                         df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
                         df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
                         df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
+                        df_res.loc[idx_h, 'Status_Pix_Orig'] = df_res.loc[idx_g, 'Status_Pix_Orig']
                         df_res.loc[idx_h, '_merge'] = 'both'
                         
                         used_manual.add(idx_g)
@@ -383,6 +368,43 @@ if hits_file and getnet_file:
 
             if used_manual:
                 df_res = df_res.drop(list(used_manual))
+
+            # --- FILTRO PÓS-PAREAMENTO: DESCARTA QR CODES CRIADOS QUE NÃO FORAM PAGOS (EXPIRADOS) ---
+            # Na Getnet, muitos PIX pagos aparecem como 'Qr Code Criado' (e esses já casaram acima).
+            # Os que sobraram sem correspondência no HITS com status 'QR CODE CRIADO' são QR Codes expirados.
+            mask_pix_nao_pago = (
+                (df_res['Status'] == 'Falta no HITS') &
+                (df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX') &
+                (df_res['Status_Pix_Orig'] == 'QR CODE CRIADO')
+            )
+            df_res = df_res[~mask_pix_nao_pago].copy()
+
+            # --- CRIAÇÃO DA TABELA COMPARATIVA MACRO POR BANDEIRA / MODALIDADE ---
+            df_h_macro = pd.concat([df_h_cart, df_h_pix], ignore_index=True)
+            df_h_macro = df_h_macro[~df_h_macro['Modalidade_H'].astype(str).str.upper().str.contains('CNPJ|MANUAL', regex=True)]
+            df_h_macro['Categoria'] = df_h_macro['Modalidade_H'].apply(obter_categoria_macro)
+            res_h = df_h_macro.groupby('Categoria')['Valor_H'].apply(lambda x: garantir_numero(x).sum()).reset_index()
+            res_h.rename(columns={'Valor_H': 'Total HITS'}, inplace=True)
+            
+            g_list = []
+            if not df_g_cartoes.empty:
+                g_list.append(df_g_cartoes[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
+            
+            # Considera no total macro apenas os PIX da Getnet efetivamente pagos (exclui os QR Codes expirados descartados)
+            df_g_pix_validos_macro = df_res[df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX']
+            if not df_g_pix_validos_macro.empty:
+                g_list.append(df_g_pix_validos_macro[['Modalidade_G', 'Valor_G']].rename(columns={'Modalidade_G': 'Mod', 'Valor_G': 'Val'}))
+            
+            if g_list:
+                df_g_macro = pd.concat(g_list, ignore_index=True)
+                df_g_macro['Categoria'] = df_g_macro['Mod'].apply(obter_categoria_macro)
+                res_g = df_g_macro.groupby('Categoria')['Val'].apply(lambda x: garantir_numero(x).sum()).reset_index()
+                res_g.rename(columns={'Val': 'Total Getnet'}, inplace=True)
+            else:
+                res_g = pd.DataFrame(columns=['Categoria', 'Total Getnet'])
+                
+            df_macro_resumo = pd.merge(res_h, res_g, on='Categoria', how='outer').fillna(0)
+            df_macro_resumo['Diferença'] = df_macro_resumo['Total HITS'] - df_macro_resumo['Total Getnet']
 
             # --- PROCESSAMENTO DEFINITIVO DE STATUS (REGRAS DE PRIORIDADE) ---
             for idx in df_res[df_res['_merge'] == 'both'].index:
