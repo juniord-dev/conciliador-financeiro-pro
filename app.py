@@ -37,36 +37,39 @@ st.markdown("""
     [data-testid="stElementToolbar"] { display: none !important; }
     /* Estilização moderna para as abas (st.tabs) */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        background-color: #e2e8f0;
-        padding: 6px;
-        border-radius: 12px;
+        gap: 12px;
+        background-color: rgba(148, 163, 184, 0.12);
+        padding: 8px 10px;
+        border-radius: 16px !important;
         width: fit-content;
+        border: 1px solid rgba(148, 163, 184, 0.2);
     }
-    .stTabs [data-baseweb="tab"] {
-        height: 40px;
-        background-color: transparent;
-        border-radius: 8px;
-        padding: 0px 18px;
-        font-weight: 600;
-        color: #475569;
+    .stTabs button[data-baseweb="tab"] {
+        height: 44px !important;
+        background-color: transparent !important;
+        border-radius: 12px !important;
+        padding: 8px 24px !important;
+        margin: 0 !important;
+        font-weight: 600 !important;
+        color: #94a3b8 !important;
         border: none !important;
-        transition: all 0.2s ease;
+        transition: all 0.2s ease !important;
     }
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: rgba(255, 255, 255, 0.6);
-        color: #002c51;
+    .stTabs button[data-baseweb="tab"]:hover {
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        color: #f8fafc !important;
     }
-    .stTabs [aria-selected="true"] {
+    .stTabs button[data-baseweb="tab"][aria-selected="true"] {
         background-color: #11CAA0 !important;
-        color: #ffffff !important;
-        box-shadow: 0 2px 6px rgba(17, 202, 160, 0.35);
+        color: #002c51 !important;
+        box-shadow: 0 4px 12px rgba(17, 202, 160, 0.3) !important;
     }
-    .stTabs [aria-selected="true"] p {
-        color: #ffffff !important;
+    .stTabs button[data-baseweb="tab"][aria-selected="true"] p {
+        color: #002c51 !important;
         font-weight: 700 !important;
     }
-    .stTabs [data-baseweb="tab-highlight"] {
+    .stTabs [data-baseweb="tab-highlight"],
+    .stTabs [data-baseweb="tab-border"] {
         display: none !important;
     }
     </style>
@@ -680,9 +683,15 @@ if hits_file and getnet_file:
             pend_pix = len(df_main_pix[~df_main_pix['Status'].isin(status_ok)])
             pend_total = len(df_main[~df_main['Status'].isin(status_ok)])
 
-            lbl_cartao = f"💳 Cartões ({pend_cartao} pendências / {len(df_main_cartao)} total)" if pend_cartao > 0 else f"💳 Cartões (✅ 0 pendências / {len(df_main_cartao)} total)"
-            lbl_pix = f"💠 PIX ({pend_pix} pendências / {len(df_main_pix)} total)" if pend_pix > 0 else f"💠 PIX (✅ 0 pendências / {len(df_main_pix)} total)"
-            lbl_todos = f"📑 Visão Unificada ({pend_total} pendências / {len(df_main)} total)"
+            def formatar_rotulo_aba(icone, nome, qtd):
+                if qtd == 0:
+                    return f"{icone} {nome} (✅ Sem pendências)"
+                palavra = "pendência" if qtd == 1 else "pendências"
+                return f"{icone} {nome} ({qtd} {palavra})"
+
+            lbl_cartao = formatar_rotulo_aba("💳", "Cartões", pend_cartao)
+            lbl_pix = formatar_rotulo_aba("💠", "PIX", pend_pix)
+            lbl_todos = formatar_rotulo_aba("📑", "Visão Unificada", pend_total)
 
             tab_cartao, tab_pix, tab_todos = st.tabs([lbl_cartao, lbl_pix, lbl_todos])
 
