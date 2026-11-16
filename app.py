@@ -40,6 +40,46 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 15px !important;
     }
+    
+    /* Estiliza o st.toggle com a mesma altura, fonte e glassmorphism das abas */
+    [data-testid="stCheckbox"] {
+        background: rgba(148, 163, 184, 0.14) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(148, 163, 184, 0.25) !important;
+        border-radius: 12px !important;
+        padding: 12px 20px !important;
+        min-height: 49px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        transition: 0.2s all !important;
+    }
+    [data-testid="stCheckbox"]:hover {
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-color: #11CAA0 !important;
+    }
+    [data-testid="stCheckbox"] label {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 10px !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+    }
+    [data-testid="stCheckbox"] label p {
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        color: #94a3b8 !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+    }
+    /* Muda a cor da chavinha ativa de vermelho para verde #11CAA0 */
+    [data-testid="stCheckbox"] input:checked + div {
+        background-color: #11CAA0 !important;
+    }
 
     /* Aba Inativa (Glassmorphism translúcido sem linha vermelha) */
     .stButton>button[kind="secondary"],
@@ -879,7 +919,7 @@ if hits_file and getnet_file:
         if 'aba_ativa' not in st.session_state:
             st.session_state['aba_ativa'] = 'cartao'
 
-        col_btn1, col_btn2, col_space, col_tgl = st.columns([2.2, 2.2, 1.6, 2.5])
+        col_btn1, col_btn2, col_space, col_tgl = st.columns([2.2, 2.2, 0.8, 3.0])
 
         with col_btn1:
             # Destaca o botão ativo com type="primary" (verde) e o inativo com type="secondary"
