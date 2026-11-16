@@ -153,7 +153,11 @@ if hits_file and getnet_file:
             if not df_g_pix.empty:
                 df_g_pix.columns = df_g_pix.columns.astype(str).str.strip().str.upper()
                 col_st_pix = next((c for c in df_g_pix.columns if 'STATUS' in str(c)), None)
-                if col_st_pix: df_g_pix = df_g_pix[~df_g_pix[col_st_pix].astype(str).str.contains('Cancelad|Expira|Recusad|Nega|Erro', case=False, na=False)]
+                if col_st_pix:
+                    # WHITELIST PIX: Aceita apenas transações efetivamente liquidadas ('paga')
+                    # Ignora 'Qr Code Criado', 'Qr Code Expirado', cancelamentos e linhas de rodapé
+                    status_pix_norm = df_g_pix[col_st_pix].fillna('').astype(str).str.strip().str.lower()
+                    df_g_pix = df_g_pix[status_pix_norm == 'paga'].copy()
                 col_v_pix = next((c for c in df_g_pix.columns if 'VALOR' in str(c)), None)
                 col_d_pix = next((c for c in df_g_pix.columns if 'DATA' in str(c)), None)
                 df_g_pix = pd.DataFrame({
@@ -346,7 +350,7 @@ if hits_file and getnet_file:
             df_res['Status'] = 'Falta no HITS'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
 
-           # Injeta o PIX Manual após os pareamentos automáticos
+            # Injeta o PIX Manual após os pareamentos automáticos
             if not df_hits_manual.empty:
                 df_hits_manual['ID'] = ''
                 df_hits_manual['Status'] = 'A VERIFICAR'
@@ -607,8 +611,40 @@ if hits_file and getnet_file:
             c4.metric("Inconsistências Graves", len(df_main[df_main['Status'].isin(['ERRO DE MODALIDADE', 'DATA INCORRETA', 'VALOR INCORRETO', 'PAGAMENTO DUPLICADO'])]))
             c5.metric("Erros de Digitação", len(df_erros_dig))
 
+            # --- EXIBIÇÃO SEPARADA NA TELA (CARTÕES vs PIX) ---
             st.markdown("### ⚠️ Divergências Principais (Prioridade Alta)")
-            st.dataframe(df_main.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}), use_container_width=True)
+            
+            mask_tela_pix = (
+                df_main['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False) |
+                df_main['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False) |
+                (df_main['Auto_G'].astype(str).str.upper() == 'PIX_SEM_AUT')
+            )
+            df_main_pix = df_main[mask_tela_pix]
+            df_main_cartao = df_main[~mask_tela_pix]
+
+            tab_cartao, tab_pix, tab_todos = st.tabs([
+                f"💳 Cartões ({len(df_main_cartao)})",
+                f"💠 PIX ({len(df_main_pix)})",
+                f"📋 Todos Juntos ({len(df_main)})"
+            ])
+
+            with tab_cartao:
+                st.dataframe(
+                    df_main_cartao.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
+
+            with tab_pix:
+                st.dataframe(
+                    df_main_pix.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
+
+            with tab_todos:
+                st.dataframe(
+                    df_main.style.apply(cor_tela, axis=1).format({'Valor_H': formata_moeda, 'Valor_G': formata_moeda}),
+                    use_container_width=True
+                )
             
             if not df_erros_dig.empty:
                 st.markdown("### ⌨️ Erros de Digitação Auto/CV (Prioridade Baixa)")
@@ -712,7 +748,7 @@ if hits_file and getnet_file:
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # PLANILHA 1: MAIN
+                # PLANILHA 1: MAIN (MANTÉM TUDO JUNTO COMO JÁ É HOJE)
                 df_main.to_excel(writer, index=False, sheet_name='Divergências Principais')
                 format_excel_sheet(writer.sheets['Divergências Principais'], df_main, {n: i for i, n in enumerate(df_main.columns, 1)})
                 
@@ -729,60 +765,4 @@ if hits_file and getnet_file:
                     
                     # Condição: Adiciona uma linha em branco e o total geral se houver mais de 1 dia
                     if df_dinheiro_totais['Data'].nunique() > 1:
-                        total_periodo = df_dinheiro_totais['Total do Dia'].sum()
-                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['', None] 
-                        df_dinheiro_totais.loc[len(df_dinheiro_totais)] = ['TOTAL DO PERÍODO:', total_periodo]
-
-                    df_dinheiro_totais.to_excel(writer, index=False, sheet_name='Dinheiro Recebido', startcol=4)
-                    
-                    ws_din = writer.sheets['Dinheiro Recebido']
-                    ws_din.freeze_panes = 'A2'
-                    
-                    for column in ws_din.columns:
-                        max_length = 0
-                        col_letter = column[0].column_letter
-                        for cell in column:
-                            try:
-                                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
-                            except: pass
-                        ws_din.column_dimensions[col_letter].width = min((max_length + 2), 35)
-                        
-                    for r in range(1, ws_din.max_row + 1):
-                        for c in range(1, ws_din.max_column + 1):
-                            cell = ws_din.cell(r, c)
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
-                            if r > 1 and c in [3, 6] and cell.value not in ['', None]:
-                                cell.number_format = '"R$" #,##0.00'
-
-                # PLANILHA 4: RESUMO FINANCEIRO POR BANDEIRA
-                if not df_macro_resumo.empty:
-                    df_macro_resumo.to_excel(writer, index=False, sheet_name='Resumo por Bandeira')
-                    ws_mac = writer.sheets['Resumo por Bandeira']
-                    
-                    for column in ws_mac.columns:
-                        max_length = 0
-                        col_letter = column[0].column_letter
-                        for cell in column:
-                            try:
-                                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
-                            except: pass
-                        ws_mac.column_dimensions[col_letter].width = max(max_length + 4, 18)
-                        
-                    for r in range(1, ws_mac.max_row + 1):
-                        for c in range(1, ws_mac.max_column + 1):
-                            cell = ws_mac.cell(r, c)
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
-                            if r > 1 and c in [2, 3, 4]:
-                                cell.number_format = '"R$" #,##0.00'
-
-            st.download_button("📥 BAIXAR RESULTADO (.xlsx)", output.getvalue(), "conciliacao_pro.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-else:
-    st.info("💡 Dica: Arraste os arquivos acima para começar. Relatório da GetNet em excel, detalhado, e todas as modalidades.")
-
-# --- FOOTER ---
-st.markdown("""
-    <div style='text-align: center; margin-top: 50px; padding: 20px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;'>
-        Desenvolvido por <b>Junior Dantas</b>
-    </div>
-""", unsafe_allow_html=True)
+                        total_periodo =
