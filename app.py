@@ -916,7 +916,7 @@ if hits_file and getnet_file:
                     use_container_width=True
                 )
 
-        if aba_selecionada == lbl_pix:
+        if st.session_state['aba_ativa'] == 'pix':
             df_exibir = df_main_pix[df_main_pix['Status'] != 'Batido - OK'] if ocultar_ok else df_main_pix
             if df_exibir.empty:
                 st.info("🎉 Nenhuma pendência de PIX encontrada!")
