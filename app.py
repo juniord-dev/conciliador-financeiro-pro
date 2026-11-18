@@ -469,34 +469,41 @@ if hits_file and getnet_file:
                 df_res = pd.concat([df_res, df_hits_manual], ignore_index=True)
 
             # --- RESGATE: CASAR PIX QR CODE (Getnet) COM PIX MANUAL/TRANSFERÊNCIA (HITS) ---
-            mask_manual_h = (df_res['Status'] == 'A VERIFICAR')
-            mask_pix_g = (df_res['Status'] == 'Falta no HITS') & (df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX')
+            mask_pix_h_falta = (df_res['Status'] == 'Falta na Getnet') & (df_res['Modalidade_H'].astype(str).str.upper().str.contains('PIX', na=False))
+            mask_pix_g_falta = (df_res['Status'] == 'Falta no HITS') & (df_res['Modalidade_G'].astype(str).str.upper().str.contains('PIX', na=False))
 
-            used_manual = set()
-            for idx_h in df_res[mask_manual_h].index:
+            used_pix_diff = set()
+            for idx_h in df_res[mask_pix_h_falta].index:
                 v_h = pd.to_numeric(df_res.loc[idx_h, 'Valor_H'], errors='coerce') or 0
                 dt_h = str(df_res.loc[idx_h, 'Data_H']).strip()
-                
-                for idx_g in df_res[mask_pix_g].index:
-                    if idx_g in used_manual: continue
-                    
+
+                # Busca candidatos na Getnet na mesma data ordenados pela menor diferença de valor
+                candidatos = []
+                for idx_g in df_res[mask_pix_g_falta].index:
+                    if idx_g in used_pix_diff:
+                        continue
                     v_g = pd.to_numeric(df_res.loc[idx_g, 'Valor_G'], errors='coerce') or 0
                     dt_g = str(df_res.loc[idx_g, 'Data_G']).strip()
-                    
-                    if np.isclose(v_h, v_g, atol=0.001) and dt_h == dt_g:
-                        df_res.loc[idx_h, 'Valor_G'] = df_res.loc[idx_g, 'Valor_G']
-                        df_res.loc[idx_h, 'Data_G'] = df_res.loc[idx_g, 'Data_G']
-                        df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[idx_g, 'Modalidade_G']
-                        df_res.loc[idx_h, 'Auto_G'] = df_res.loc[idx_g, 'Auto_G']
-                        df_res.loc[idx_h, 'CV_G'] = df_res.loc[idx_g, 'CV_G']
-                        df_res.loc[idx_h, 'Status_Pix_Orig'] = df_res.loc[idx_g, 'Status_Pix_Orig']
-                        df_res.loc[idx_h, '_merge'] = 'both'
-                        
-                        used_manual.add(idx_g)
-                        break
+                    diff = abs(v_h - v_g)
 
-            if used_manual:
-                df_res = df_res.drop(list(used_manual))
+                    # Tolerância para erro de digitação: mesma data e diferença de até R$ 10,00 ou 10% do valor
+                    if dt_h == dt_g and diff <= max(10.0, v_g * 0.10):
+                        candidatos.append((diff, idx_g))
+
+                if candidatos:
+                    candidatos.sort(key=lambda x: x[0])
+                    melhor_idx_g = candidatos[0][1]
+
+                    df_res.loc[idx_h, 'Valor_G'] = df_res.loc[melhor_idx_g, 'Valor_G']
+                    df_res.loc[idx_h, 'Data_G'] = df_res.loc[melhor_idx_g, 'Data_G']
+                    df_res.loc[idx_h, 'Modalidade_G'] = df_res.loc[melhor_idx_g, 'Modalidade_G']
+                    df_res.loc[idx_h, 'Auto_G'] = df_res.loc[melhor_idx_g, 'Auto_G']
+                    df_res.loc[idx_h, 'CV_G'] = df_res.loc[melhor_idx_g, 'CV_G']
+                    df_res.loc[idx_h, '_merge'] = 'both'
+                    used_pix_diff.add(melhor_idx_g)
+
+            if used_pix_diff:
+                df_res = df_res.drop(list(used_pix_diff))
 
             # --- FILTRO PÓS-PAREAMENTO: DESCARTA QR CODES CRIADOS NÃO PAGOS (EXPIRADOS) ---
             mask_pix_nao_pago = (
