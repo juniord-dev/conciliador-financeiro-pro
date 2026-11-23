@@ -370,8 +370,8 @@ if hits_file and getnet_file:
             df_m_cart = pd.concat([df_m_cart_valid, df_h_invalid, df_g_invalid], ignore_index=True)
 
             if not df_g_pix.empty:
-                df_h_pix['Valor_H'] = garantir_numero(df_h_pix['Valor_H'])
-                df_g_pix['Valor_G'] = garantir_numero(df_g_pix['Valor_G'])
+                df_h_pix['Valor_H'] = garantir_numero(df_h_pix['Valor_H']).round(2)
+                df_g_pix['Valor_G'] = garantir_numero(df_g_pix['Valor_G']).round(2)
                 
                 df_h_pix['Dt_Datetime'] = pd.to_datetime(df_h_pix['Data_H'], errors='coerce', dayfirst=True)
                 df_g_pix['Dt_Datetime'] = pd.to_datetime(df_g_pix['Data_G'], errors='coerce', dayfirst=True)
@@ -382,15 +382,15 @@ if hits_file and getnet_file:
                 df_h_pix = df_h_pix.sort_values('Dt_Datetime')
                 df_g_pix = df_g_pix.sort_values('Dt_Datetime')
                 
-                df_h_pix['Match'] = df_h_pix.groupby(['Dt_Day', df_h_pix['Valor_H'].round(2)]).cumcount()
-                df_g_pix['Match'] = df_g_pix.groupby(['Dt_Day', df_g_pix['Valor_G'].round(2)]).cumcount()
+                df_h_pix['occ_pix'] = df_h_pix.groupby(['Dt_Day', 'Valor_H']).cumcount()
+                df_g_pix['occ_pix'] = df_g_pix.groupby(['Dt_Day', 'Valor_G']).cumcount()
                 
                 df_m_pix = pd.merge(
                     df_h_pix, df_g_pix, 
-                    left_on=['Dt_Day', 'Valor_H', 'Match'], 
-                    right_on=['Dt_Day', 'Valor_G', 'Match'], 
+                    left_on=['Dt_Day', 'Valor_H', 'occ_pix'], 
+                    right_on=['Dt_Day', 'Valor_G', 'occ_pix'], 
                     how='outer', indicator=True
-                ).drop(columns=['Match', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
+                ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
             else:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
