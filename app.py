@@ -459,6 +459,7 @@ if hits_file and getnet_file:
 
             df_res['Status'] = 'Falta no HITS'
             df_res.loc[df_res['_merge'] == 'left_only', 'Status'] = 'Falta na Getnet'
+            df_res.loc[df_res['_merge'] == 'both', 'Status'] = 'CONCILIADO'
 
             if not df_hits_manual.empty:
                 df_hits_manual['ID'] = ''
@@ -507,6 +508,7 @@ if hits_file and getnet_file:
 
             # --- FILTRO PÓS-PAREAMENTO: DESCARTA QR CODES CRIADOS NÃO PAGOS (EXPIRADOS) ---
             mask_pix_nao_pago = (
+                (df_res['_merge'] == 'right_only') &
                 (df_res['Status'] == 'Falta no HITS') &
                 (df_res['Modalidade_G'].astype(str).str.upper() == 'GETNET PIX') &
                 (df_res['Status_Pix_Orig'] == 'QR CODE CRIADO')
@@ -906,8 +908,6 @@ if hits_file and getnet_file:
         # --- DASHBOARD ---
         st.success("✅ Conciliação Realizada com Sucesso!")
         c1, c2, c3, c4, c5 = st.columns(5)
-        st.caption(f"DEBUG -> Total df_res: {len(df_res)} | Modalidades HITS: {df_res['Modalidade_H'].value_counts().to_dict()}")
-        st.write(df_res[(df_res['Valor_H'].astype(str).str.contains('23', na=False)) | (df_res['Valor_G'].astype(str).str.contains('23', na=False))][['ID', 'Status', 'Pagamento', 'Conta', 'Valor_H', 'Valor_G', 'Data_H', 'Data_G', 'Modalidade_H', 'Modalidade_G']])
         c1.metric("Total de Linhas", len(df_res))
         c2.metric("OK / Estornos", len(df_res[df_res['Status'].isin(['Batido - OK', 'ESTORNO'])]))
         c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
