@@ -379,18 +379,18 @@ if hits_file and getnet_file:
                 df_h_pix['Dt_Day'] = df_h_pix['Dt_Datetime'].dt.date
                 df_g_pix['Dt_Day'] = df_g_pix['Dt_Datetime'].dt.date
                 
-                df_h_pix = df_h_pix.sort_values('Dt_Datetime')
-                df_g_pix = df_g_pix.sort_values('Dt_Datetime')
-                
+                df_h_pix['Valor_H'] = garantir_numero(df_h_pix['Valor_H']).round(2)
+                df_g_pix['Valor_G'] = garantir_numero(df_g_pix['Valor_G']).round(2)
+
                 df_h_pix['occ_pix'] = df_h_pix.groupby(['Dt_Day', 'Valor_H']).cumcount()
                 df_g_pix['occ_pix'] = df_g_pix.groupby(['Dt_Day', 'Valor_G']).cumcount()
-                
-                df_m_pix = pd.merge(
-                    df_h_pix, df_g_pix, 
-                    left_on=['Dt_Day', 'Valor_H', 'occ_pix'], 
-                    right_on=['Dt_Day', 'Valor_G', 'occ_pix'], 
-                    how='outer', indicator=True
-                ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
+
+            df_m_pix = pd.merge(
+                df_h_pix, df_g_pix,
+                left_on=['Dt_Day', 'Valor_H', 'occ_pix'],
+                right_on=['Dt_Day', 'Valor_G', 'occ_pix'],
+                how='outer', indicator=True
+            ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
             else:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
