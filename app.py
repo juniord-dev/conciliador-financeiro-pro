@@ -906,6 +906,8 @@ if hits_file and getnet_file:
         # --- DASHBOARD ---
         st.success("✅ Conciliação Realizada com Sucesso!")
         c1, c2, c3, c4, c5 = st.columns(5)
+        st.caption(f"DEBUG -> HITS Cartões: {len(df_h_cart)} | HITS PIX: {len(df_h_pix)} | Getnet PIX: {len(df_g_pix)} | Linhas df_res: {len(df_res)}")
+        st.write(df_res[df_res['Valor_H'].astype(str).str.contains('23', na=False)][['ID', 'Status', 'Pagamento', 'Valor_H', 'Valor_G', 'Data_H', 'Data_G']])
         c1.metric("Total de Linhas", len(df_res))
         c2.metric("OK / Estornos", len(df_res[df_res['Status'].isin(['Batido - OK', 'ESTORNO'])]))
         c3.metric("Faltas", len(df_res[df_res['Status'].str.contains('Falta')]))
