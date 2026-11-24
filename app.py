@@ -385,13 +385,13 @@ if hits_file and getnet_file:
                 df_h_pix['occ_pix'] = df_h_pix.groupby(['Dt_Day', 'Valor_H']).cumcount()
                 df_g_pix['occ_pix'] = df_g_pix.groupby(['Dt_Day', 'Valor_G']).cumcount()
 
-            df_m_pix = pd.merge(
-                df_h_pix, df_g_pix,
-                left_on=['Dt_Day', 'Valor_H', 'occ_pix'],
-                right_on=['Dt_Day', 'Valor_G', 'occ_pix'],
-                how='outer', indicator=True
-            ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
-                else:
+                df_m_pix = pd.merge(
+                    df_h_pix, df_g_pix,
+                    left_on=['Dt_Day', 'Valor_H', 'occ_pix'],
+                    right_on=['Dt_Day', 'Valor_G', 'occ_pix'],
+                    how='outer', indicator=True
+                ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
+            else:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
 
