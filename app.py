@@ -391,7 +391,7 @@ if hits_file and getnet_file:
                 right_on=['Dt_Day', 'Valor_G', 'occ_pix'],
                 how='outer', indicator=True
             ).drop(columns=['occ_pix', 'Dt_Day', 'Dt_Datetime_x', 'Dt_Datetime_y'], errors='ignore')
-            else:
+                else:
                 df_h_pix['_merge'] = 'left_only'
                 df_m_pix = df_h_pix
 
